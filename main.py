@@ -8,8 +8,8 @@ import discord
 import dotenv
 from discord import DiscordException
 
-from morticia import Morticia
-from utils import get_pr_links_from_text, pretty_duration
+from src.morticia import Morticia
+from src.utils import get_pr_links_from_text, pretty_duration
 
 dotenv.load_dotenv(".env")
 
@@ -77,7 +77,7 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
     await ctx.respond(f"```\nFetching the latest changes to {repo_id} ...```")
 
     start_time = time.time()
-    await morticia.pull_repo(pull_request_url)
+    morticia.pull_repo(pull_request_url)
     end_time = time.time()
     pretty_time = pretty_duration(int(end_time - start_time))
 

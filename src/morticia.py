@@ -55,7 +55,7 @@ class Morticia:
         return int(url[last_slash + 1:])
 
     @classmethod
-    async def pull_repo(cls, url: str):
+    def pull_repo(cls, url: str):
         """
         Pulls (or clones) a repository's default branch down to the ``./repositories`` directory.
         """
