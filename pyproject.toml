@@ -7,9 +7,9 @@ name = "starcatcher"
 dynamic = ["version"]
 dependencies = [
     "dotenv",
-    "discord-py",
+    "py-cord",
     "pygithub",
-    "gitpython"
+    "dulwich"
 ]
 requires-python = ">= 3.10"
 license = "GPL-3.0-only"
