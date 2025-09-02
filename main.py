@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import sys
@@ -9,6 +10,7 @@ import dotenv
 from discord import DiscordException
 
 from src.morticia import Morticia
+from src.status import StatusMessage, Spinner
 from src.utils import get_pr_links_from_text, pretty_duration
 
 dotenv.load_dotenv(".env")
@@ -74,14 +76,23 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
 
     (organization_name, repo_name) = Morticia.repo_id_from_url(pull_request_url)
     repo_id = f"{organization_name}/{repo_name}"
-    await ctx.respond(f"```\nFetching the latest changes to {repo_id} ...```")
+
+    status = StatusMessage(ctx)
+    await status.write_line(f"Fetching the latest changes to {repo_id} ...")
+    await status.flush()
+
+    spinner = Spinner(status, "Reticulating splines")
+    for i in range(10):
+        await spinner.spin()
+        time.sleep(0.5)
+    await spinner.complete()
 
     start_time = time.time()
     morticia.pull_repo(pull_request_url)
     end_time = time.time()
     pretty_time = pretty_duration(int(end_time - start_time))
-
-    await ctx.respond(f"Done in {pretty_time}!")
+    await status.write_line(f"Done in {pretty_time}!")
+    await status.flush()
 
 
 bot.run(os.environ.get("DISCORD_TOKEN"))
