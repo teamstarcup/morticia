@@ -1,41 +1,29 @@
 import logging
 import os
+from typing import Literal
 
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
-from github import Github, Auth, PullRequest
-from github.Repository import Repository
+from github import Github, Auth
 from slugify import slugify
+from sqlalchemy.orm import Session
 
-GITHUB_URL = "https://github.com/"
+from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange
+from src.utils import repo_base_url, repo_id_from_url
+
 REPOSITORIES_DIR = "./repositories"
 
 log = logging.getLogger(__name__)
 
 
 class Morticia:
-    def __init__(self, auth_token: str):
+    def __init__(self, auth_token: str, session: Session):
         self.auth = Auth.Token(auth_token)
         self.github = Github(auth=self.auth)
+        self.session = session
 
     def close(self) -> None:
         self.github.close()
-
-    @classmethod
-    def repo_id_from_url(cls, url: str) -> str:
-        url = url.replace(GITHUB_URL, "")
-        organization_name, repo_name, *_ = url.split("/")
-        return f"{organization_name}/{repo_name}"
-
-    @classmethod
-    def repo_base_url(cls, url: str) -> str:
-        """
-        Takes a GitHub URL relevant to a repository and returns the URL to that repository.
-        :param url:
-        :return:
-        """
-        repo_full_name = Morticia.repo_id_from_url(url)
-        return f"{GITHUB_URL}{repo_full_name}"
 
     @classmethod
     def repo_slug_from_url(cls, url: str) -> str:
@@ -44,8 +32,7 @@ class Morticia:
         :param url:
         :return:
         """
-        repo_full_name = Morticia.repo_id_from_url(url)
-        return slugify(f"{repo_full_name}")
+        return slugify(repo_id_from_url(url))
 
     @classmethod
     def issue_id_from_url(cls, url: str) -> int:
@@ -58,7 +45,7 @@ class Morticia:
         Pulls (or clones) a repository's default branch down to the ``./repositories`` directory.
         """
         os.makedirs(REPOSITORIES_DIR, exist_ok=True)
-        repo_url = Morticia.repo_base_url(url)
+        repo_url = repo_base_url(url)
         repo_slug = Morticia.repo_slug_from_url(repo_url)
         repo_dir = f"{REPOSITORIES_DIR}/{repo_slug}"
 
@@ -71,13 +58,33 @@ class Morticia:
         return repo
 
     def get_github_repo(self, url: str):
-        repo_base_url = self.repo_id_from_url(url)
-        return self.github.get_repo(repo_base_url)
+        return self.github.get_repo(repo_id_from_url(url))
 
     def get_pull_request(self, url: str):
         repo = self.get_github_repo(url)
         pr_id = Morticia.issue_id_from_url(url)
         return repo.get_pull(pr_id)
+
+    def index_repo(self, repo_url: str, state: Literal["open", "closed", "all"] = "all"):
+        repo = self.get_github_repo(repo_url)
+        repo_id = repo_id_from_url(repo_url)
+
+        # make sure this was inserted because foreignkey depends on it
+        KnownRepo.as_unique(self.session, repo_id=repo_id)
+
+        for pull_request in repo.get_pulls(state=state):
+            known_pr = KnownPullRequest.as_unique(self.session, pull_request_id=pull_request.number, repo_id=repo_id)
+            known_pr.update(pull_request)
+
+            for file in pull_request.get_files():
+                # make sure this was inserted because foreignkey depends on it
+                KnownFile.as_unique(self.session, repo_id=repo_id, file_path=file.filename)
+
+                known_file_change = KnownFileChange.as_unique(self.session, pull_request_id=pull_request.number, repo_id=repo_id, file_path=file.filename)
+                known_file_change.update(file)
+
+            self.session.commit()
+            # break
 
     def get_ancestors(self, url: str):
         """

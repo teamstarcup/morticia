@@ -51,7 +51,7 @@ def upgrade() -> None:
     sa.Column('changes', sa.Integer(), nullable=False),
     sa.Column('deletions', sa.Integer(), nullable=False),
     sa.Column('previous_file_path', sa.String(), nullable=True),
-    sa.Column('patch', sa.String(), nullable=False),
+    sa.Column('patch', sa.String(), nullable=True),
     sa.Column('sha', sa.String(), nullable=False),
     sa.ForeignKeyConstraint(['file_path', 'repo_id'], ['known_files.file_path', 'known_files.repo_id'], name=op.f('fk_known_file_changes_file_path_repo_id_known_files')),
     sa.ForeignKeyConstraint(['pull_request_id', 'repo_id'], ['known_pull_requests.pull_request_id', 'known_pull_requests.repo_id'], name=op.f('fk_known_file_changes_pull_request_id_known_pull_requests')),

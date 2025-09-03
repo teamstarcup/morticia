@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import sys
+import time
 import traceback
 
 import discord
@@ -11,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from src.morticia import Morticia
-from src.utils import get_pr_links_from_text
+from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration, repo_id_from_url
 from src.views import MyView
 
 dotenv.load_dotenv(".env")
@@ -26,7 +27,6 @@ log = logging.getLogger(__name__)
 token = os.environ.get("GITHUB_TOKEN")
 username = os.environ.get("GITHUB_BOT_USERNAME")
 email = os.environ.get("GITHUB_BOT_EMAIL")
-morticia = Morticia(token)
 
 db_host = os.environ.get("POSTGRES_HOST")
 db_port = os.environ.get("POSTGRES_PORT")
@@ -82,7 +82,7 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
 
     pull_request_url = matches[0]
 
-    repo_id = Morticia.repo_id_from_url(pull_request_url)
+    repo_id = repo_id_from_url(pull_request_url)
 
     pull_request = morticia.get_pull_request(pull_request_url)
 
@@ -131,7 +131,52 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error: d
     raise error  # Here we raise other errors to ensure they aren't ignored
 
 
+@bot.slash_command(
+    name="index",
+    description="Indexes all pull requests in the given GitHub repository.",
+    default_member_permissions=discord.Permissions(
+        discord.Permissions.ban_members.flag
+    ),
+    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+    options = [],
+)
+async def index(ctx: discord.ApplicationContext, repo_url: str):
+    try:
+        matches = get_repo_links_from_text(repo_url)
+        if matches == 0:
+            await ctx.respond("Hey, I didn't find any GitHub repository links there.")
+            return
+
+        repo_url = matches[0]
+        repo_id = repo_id_from_url(repo_url)
+        pull_request_count = morticia.get_github_repo(repo_url).get_pulls("all").totalCount
+        estimated_seconds = pull_request_count
+        estimate = pretty_duration(estimated_seconds)
+        await ctx.respond(f"Okay, I'll go index {repo_id}. This is probably going to take a lot longer than 15 minutes,"
+                          f" so I'll ping you when I'm done!\n\nEstimated time: {estimate}")
+
+        time_start = time.time()
+        morticia.index_repo(repo_url)
+        time_stop = time.time()
+        duration = int(time_stop - time_start)
+        display_duration = pretty_duration(duration)
+
+        await ctx.send_followup(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
+    except Exception as e:
+        traceback.print_exc()
+        message = f"{ctx.user.mention} Unhandled exception:"
+        with open("trace.txt", "w") as f:
+            f.write(traceback.format_exc())
+        await ctx.send(message, file=discord.File(fp="trace.txt"))
+
+
+@index.error
+async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
+    raise error  # Here we raise other errors to ensure they aren't ignored
+
+
 with Session(engine) as session:
+    morticia = Morticia(token, session)
     bot.run(os.environ.get("DISCORD_TOKEN"))
 
 morticia.close()
