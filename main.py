@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import sys
 import time
 import traceback
@@ -12,6 +13,7 @@ from discord import DiscordException
 from src.morticia import Morticia
 from src.status import StatusMessage, Spinner
 from src.utils import get_pr_links_from_text, pretty_duration
+from src.views import MyView
 
 dotenv.load_dotenv(".env")
 
@@ -74,25 +76,53 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
 
     pull_request_url = matches[0]
 
-    (organization_name, repo_name) = Morticia.repo_id_from_url(pull_request_url)
-    repo_id = f"{organization_name}/{repo_name}"
+    repo_id = Morticia.repo_id_from_url(pull_request_url)
 
-    status = StatusMessage(ctx)
-    await status.write_line(f"Fetching the latest changes to {repo_id} ...")
-    await status.flush()
+    pull_request = morticia.get_pull_request(pull_request_url)
 
-    spinner = Spinner(status, "Reticulating splines")
-    for i in range(10):
-        await spinner.spin()
-        time.sleep(0.5)
-    await spinner.complete()
+    body_summary = re.sub(r"<!--.*?-->", "", pull_request.body)[:300]
+    if len(pull_request.body) > 300:
+        body_summary += " ..."
+    body_summary += os.linesep
+    body_summary += f"```ansi\n[2;36m+{pull_request.additions}[0m [2;31m-{pull_request.deletions}[0m\n```"
 
-    start_time = time.time()
-    morticia.pull_repo(pull_request_url)
-    end_time = time.time()
-    pretty_time = pretty_duration(int(end_time - start_time))
-    await status.write_line(f"Done in {pretty_time}!")
-    await status.flush()
+    color = discord.Colour.green()
+    if pull_request.merged:
+        color = discord.Colour.purple()
+    elif pull_request.state == "closed":
+        color = discord.Colour.red
+
+    embed = discord.Embed(
+        title=pull_request.title,
+        description=body_summary,
+        url=pull_request_url,
+        color=color,
+    )
+    embed.add_field(
+        name="State",
+        value=pull_request.merged and "Merged" or pull_request.state,
+    )
+    embed.add_field(
+        name="Created: ",
+        value=f"<t:{int(pull_request.created_at.timestamp())}:f>",
+    )
+    if pull_request.state == "closed":
+        embed.add_field(
+            name="Closed: ",
+            value=f"<t:{int(pull_request.closed_at.timestamp())}:f>",
+        )
+
+    embed.set_author(
+        name=pull_request.user.login,
+        icon_url=pull_request.user.avatar_url,
+        url=f"https://github.com/{pull_request.user.login}",
+    )
+    await ctx.respond("", embed=embed, view=MyView(morticia, pull_request_url))
+
+
+@explore.error
+async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
+    raise error  # Here we raise other errors to ensure they aren't ignored
 
 
 bot.run(os.environ.get("DISCORD_TOKEN"))

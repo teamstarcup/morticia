@@ -11,7 +11,7 @@ class StatusMessage:
     buffered_text: str
     next_message: bool = True
 
-    def __init__(self, ctx: discord.ApplicationContext):
+    def __init__(self, ctx: discord.ApplicationContext | discord.Interaction):
         self.ctx = ctx
         self.buffered_text = ""
 
