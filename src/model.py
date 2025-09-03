@@ -103,7 +103,7 @@ class KnownFile(Base, UniqueMixin):
 
     @classmethod
     def unique_filter(cls, query, repo_id, file_path):
-        return query.filter(KnownFile.repo_id == repo_id and KnownFile.file_path == file_path)
+        return query.filter(KnownFile.repo_id == repo_id).filter(KnownFile.file_path == file_path)
 
 
 class KnownPullRequest(Base, UniqueMixin):
@@ -113,7 +113,7 @@ class KnownPullRequest(Base, UniqueMixin):
     repo_id: Mapped[str] = mapped_column(ForeignKey("known_repos.repo_id"), primary_key=True)
 
     title: Mapped[str]
-    body: Mapped[str]
+    body: Mapped[Optional[str]]
 
     state: Mapped[str]
     merged: Mapped[bool]
@@ -160,7 +160,7 @@ class KnownPullRequest(Base, UniqueMixin):
 
     @classmethod
     def unique_filter(cls, query, pull_request_id, repo_id):
-        return query.filter(KnownPullRequest.pull_request_id == pull_request_id and KnownPullRequest.repo_id == repo_id)
+        return query.filter(KnownPullRequest.pull_request_id == pull_request_id).filter(KnownPullRequest.repo_id == repo_id)
 
 
 class KnownFileChange(Base, UniqueMixin):
@@ -196,8 +196,4 @@ class KnownFileChange(Base, UniqueMixin):
 
     @classmethod
     def unique_filter(cls, query, pull_request_id, repo_id, file_path):
-        return query.filter(
-            KnownFileChange.pull_request_id == pull_request_id and
-            KnownFileChange.repo_id == repo_id and
-            KnownFileChange.file_path == file_path
-        )
+        return query.filter(KnownFileChange.pull_request_id == pull_request_id).filter(KnownFileChange.repo_id == repo_id).filter(KnownFileChange.file_path == file_path)

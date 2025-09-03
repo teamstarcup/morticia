@@ -75,6 +75,11 @@ class Morticia:
         for pull_request in repo.get_pulls(state=state):
             known_pr = KnownPullRequest.as_unique(self.session, pull_request_id=pull_request.number, repo_id=repo_id)
             known_pr.update(pull_request)
+            self.session.commit()
+
+            # GitHub sends back an HTTP 422 error if we try to iterate changed files and there are none
+            if pull_request.changed_files == 0:
+                continue
 
             for file in pull_request.get_files():
                 # make sure this was inserted because foreignkey depends on it

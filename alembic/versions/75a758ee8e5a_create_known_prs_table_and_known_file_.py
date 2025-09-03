@@ -25,7 +25,7 @@ def upgrade() -> None:
     sa.Column('pull_request_id', sa.Integer(), nullable=False),
     sa.Column('repo_id', sa.String(), nullable=False),
     sa.Column('title', sa.String(), nullable=False),
-    sa.Column('body', sa.String(), nullable=False),
+    sa.Column('body', sa.String(), nullable=True),
     sa.Column('state', sa.String(), nullable=False),
     sa.Column('merged', sa.Boolean(), nullable=False),
     sa.Column('additions', sa.Integer(), nullable=False),

@@ -150,7 +150,7 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
         repo_url = matches[0]
         repo_id = repo_id_from_url(repo_url)
         pull_request_count = morticia.get_github_repo(repo_url).get_pulls("all").totalCount
-        estimated_seconds = pull_request_count
+        estimated_seconds = pull_request_count * 2.5
         estimate = pretty_duration(estimated_seconds)
         await ctx.respond(f"Okay, I'll go index {repo_id}. This is probably going to take a lot longer than 15 minutes,"
                           f" so I'll ping you when I'm done!\n\nEstimated time: {estimate}")
@@ -164,6 +164,7 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
         await ctx.send_followup(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
     except Exception as e:
         traceback.print_exc()
+        session.rollback()
         message = f"{ctx.user.mention} Unhandled exception:"
         with open("trace.txt", "w") as f:
             f.write(traceback.format_exc())
