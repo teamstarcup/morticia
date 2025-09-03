@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.create_table('known_repos',sa.Column('repo_id', sa.String(50), primary_key=True))
+    op.create_table('known_repos',sa.Column('repo_id', sa.String(), primary_key=True))
     pass
 
 
