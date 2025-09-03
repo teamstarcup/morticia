@@ -9,7 +9,10 @@ dependencies = [
     "dotenv",
     "py-cord",
     "pygithub",
-    "dulwich"
+    "dulwich",
+    "alembic",
+    "sqlalchemy",
+    "psycopg2",
 ]
 requires-python = ">= 3.10"
 license = "GPL-3.0-only"

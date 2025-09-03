@@ -1,18 +1,17 @@
-import asyncio
 import logging
 import os
 import re
 import sys
-import time
 import traceback
 
 import discord
 import dotenv
 from discord import DiscordException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from src.morticia import Morticia
-from src.status import StatusMessage, Spinner
-from src.utils import get_pr_links_from_text, pretty_duration
+from src.utils import get_pr_links_from_text
 from src.views import MyView
 
 dotenv.load_dotenv(".env")
@@ -28,6 +27,13 @@ token = os.environ.get("GITHUB_TOKEN")
 username = os.environ.get("GITHUB_BOT_USERNAME")
 email = os.environ.get("GITHUB_BOT_EMAIL")
 morticia = Morticia(token)
+
+db_host = os.environ.get("POSTGRES_HOST")
+db_port = os.environ.get("POSTGRES_PORT")
+db_user = os.environ.get("POSTGRES_USER")
+db_pass = os.environ.get("POSTGRES_PASSWORD")
+db_name = os.environ.get("POSTGRES_DB")
+engine = create_engine(f'postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}')
 
 intents = discord.Intents.all()
 bot = discord.Bot()
@@ -125,5 +131,7 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error: d
     raise error  # Here we raise other errors to ensure they aren't ignored
 
 
-bot.run(os.environ.get("DISCORD_TOKEN"))
+with Session(engine) as session:
+    bot.run(os.environ.get("DISCORD_TOKEN"))
+
 morticia.close()

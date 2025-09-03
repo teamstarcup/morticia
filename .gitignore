@@ -3,3 +3,4 @@ starcup
 .env
 work
 repositories
+docker-compose.yml
