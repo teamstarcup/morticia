@@ -1,5 +1,5 @@
-from sqlalchemy import String, MetaData
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import String, MetaData, ForeignKey
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -15,4 +15,10 @@ class Base(DeclarativeBase):
 class KnownRepo(Base):
     __tablename__ = "known_repos"
 
-    repo_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    repo_id: Mapped[str] = mapped_column(primary_key=True)
+
+class KnownFile(Base):
+    __tablename__ = "known_files"
+
+    repo_id: Mapped[KnownRepo] = mapped_column(ForeignKey("known_repos.repo_id"), primary_key=True)
+    file_path: Mapped[str] = mapped_column(primary_key=True)
