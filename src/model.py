@@ -1,14 +1,11 @@
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-import discord
 import github.File
-import sqlalchemy
 from github.PullRequest import PullRequest
 from sqlalchemy import MetaData, ForeignKey
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
-from src.utils import repo_id_from_url
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 def _unique(session, cls, hashfunc, queryfunc, constructor, arg, kw):
@@ -128,14 +125,12 @@ class KnownPullRequest(Base, UniqueMixin):
     ref_base: Mapped[str]
     ref_head: Mapped[str]
 
-    created_at: Mapped[int]
-    updated_at: Mapped[Optional[int]]
-    closed_at: Mapped[Optional[int]]
-    merged_at: Mapped[Optional[int]]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[Optional[datetime]]
+    closed_at: Mapped[Optional[datetime]]
+    merged_at: Mapped[Optional[datetime]]
 
     def update(self, pull_request: PullRequest):
-        # self.pull_request_id = pull_request.number
-        # self.repo_id = repo_id_from_url(pull_request.html_url)
         self.title = pull_request.title
         self.body = pull_request.body
         self.state = pull_request.state
@@ -147,12 +142,12 @@ class KnownPullRequest(Base, UniqueMixin):
         self.comments = pull_request.comments
         self.ref_base = pull_request.base.ref
         self.ref_head = pull_request.head.ref
-        self.created_at = int(pull_request.created_at.timestamp())
-        self.updated_at = int(pull_request.updated_at.timestamp())
+        self.created_at = pull_request.created_at
+        self.updated_at = pull_request.updated_at
         if pull_request.closed_at:
-            self.closed_at = int(pull_request.closed_at.timestamp())
+            self.closed_at = pull_request.closed_at
         if pull_request.merged_at:
-            self.merged_at = int(pull_request.merged_at.timestamp())
+            self.merged_at = pull_request.merged_at
 
     @classmethod
     def unique_hash(cls, pull_request_id, repo_id):
