@@ -166,14 +166,9 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
         duration = int(time_stop - time_start)
         display_duration = pretty_duration(duration)
 
-        await ctx.send_followup(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
+        await ctx.send(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
     except Exception as e:
-        complain(ctx)
-
-
-@index.error
-async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
-    raise error  # Here we raise other errors to ensure they aren't ignored
+        await complain(ctx)
 
 
 with Session(engine) as session:
