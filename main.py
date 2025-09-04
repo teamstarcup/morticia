@@ -7,7 +7,6 @@ import traceback
 
 import discord
 import dotenv
-from discord import DiscordException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -39,6 +38,15 @@ intents = discord.Intents.all()
 bot = discord.Bot()
 
 
+async def complain(ctx: discord.ApplicationContext):
+    traceback.print_exc()
+    session.rollback()
+    message = f"{ctx.user.mention} Unhandled exception:"
+    with open("trace.txt", "w") as f:
+        f.write(traceback.format_exc())
+    await ctx.send(message, file=discord.File(fp="trace.txt"))
+
+
 def complains(func):
     """
     Decorator function for bot commands to automatically respond with any unhandled exceptions.
@@ -50,11 +58,7 @@ def complains(func):
             await func(*args, **kwds)
         except Exception:
             ctx: discord.ApplicationContext = args[0]
-            message = f"{ctx.user.mention} Unhandled exception:\n```\n{traceback.format_exc()}```"
-            try:
-                await ctx.respond(message)
-            except DiscordException:
-                await ctx.channel.send(message)
+            await complain(ctx)
         return None
 
     return wrapper
@@ -86,8 +90,9 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
 
     pull_request = morticia.get_pull_request(pull_request_url)
 
-    body_summary = re.sub(r"<!--.*?-->", "", pull_request.body)[:300]
-    if len(pull_request.body) > 300:
+    body = pull_request.body or ""
+    body_summary = re.sub(r"<!--.*?-->", "", body)[:300]
+    if len(body) > 300:
         body_summary += " ..."
     body_summary += os.linesep
     body_summary += f"```ansi\n[2;36m+{pull_request.additions}[0m [2;31m-{pull_request.deletions}[0m\n```"
@@ -163,12 +168,7 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
 
         await ctx.send_followup(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
     except Exception as e:
-        traceback.print_exc()
-        session.rollback()
-        message = f"{ctx.user.mention} Unhandled exception:"
-        with open("trace.txt", "w") as f:
-            f.write(traceback.format_exc())
-        await ctx.send(message, file=discord.File(fp="trace.txt"))
+        complain(ctx)
 
 
 @index.error
