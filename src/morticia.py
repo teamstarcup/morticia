@@ -1,10 +1,10 @@
 import logging
 import os
-from typing import Literal
 
+import sqlalchemy
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
-from github import Github, Auth
+from github import Github, Auth, UnknownObjectException
 from slugify import slugify
 from sqlalchemy.orm import Session
 
@@ -65,14 +65,23 @@ class Morticia:
         pr_id = Morticia.issue_id_from_url(url)
         return repo.get_pull(pr_id)
 
-    def index_repo(self, repo_url: str, state: Literal["open", "closed", "all"] = "all"):
+    def index_repo(self, repo_url: str):
         repo = self.get_github_repo(repo_url)
         repo_id = repo_id_from_url(repo_url)
 
         # make sure this was inserted because foreignkey depends on it
         KnownRepo.as_unique(self.session, repo_id=repo_id)
+        self.session.commit()
 
-        for pull_request in repo.get_pulls(state=state):
+        highest_pull_request_id = repo.get_pulls(state="all", direction="desc").get_page(0)[0].number
+        for i in range(highest_pull_request_id, 1, -1):
+            # if self.session.execute(sqlalchemy.select(KnownPullRequest).where(KnownPullRequest.pull_request_id == i)).scalar():
+            #     continue
+            try:
+                pull_request = repo.get_pull(i)
+            except UnknownObjectException:
+                continue
+
             known_pr = KnownPullRequest.as_unique(self.session, pull_request_id=pull_request.number, repo_id=repo_id)
             known_pr.update(pull_request)
             self.session.commit()
@@ -98,7 +107,7 @@ class Morticia:
         :return:
         """
         median_pr = self.get_pull_request(url)
-        target_repo = self.get_github_repo(url)
+        repo_id = repo_id_from_url(url)
 
         # gather list of files to search history
         relevant_file_paths: set[str] = set()
@@ -109,19 +118,42 @@ class Morticia:
 
         # used for filtering ancestor PRs
         median_pr_time = median_pr.merged and median_pr.merged_at or median_pr.created_at
+        median_pr_time = int(median_pr_time.timestamp())
 
-        # ancestors: list[str] = []
-        for previous_pr in target_repo.get_pulls(state="closed"):
-            if not previous_pr.merged:
-                continue
+        ancestors: set[KnownPullRequest] = set()
+        for relevant_file_path in relevant_file_paths:
+            known_file_changes = self.session.execute(
+                sqlalchemy.select(KnownFileChange)
+                .where(KnownFileChange.repo_id == repo_id)
+                .filter(
+                    ((KnownFileChange.file_path == relevant_file_path) | (KnownFileChange.previous_file_path == relevant_file_path))
+                )
+            )
 
-            if previous_pr.merged_at > median_pr_time:
-                continue
+            for known_file_change in known_file_changes.scalars():
+                known_pull_request = self.session.execute(sqlalchemy.select(KnownPullRequest).filter((KnownPullRequest.repo_id == repo_id) & (KnownPullRequest.pull_request_id == known_file_change.pull_request_id))).scalar()
 
-            if previous_pr.id == median_pr.id:
-                continue
+                if not known_pull_request.merged:
+                    continue
 
-            for candidate_file in previous_pr.get_files():
-                if candidate_file.filename in relevant_file_paths:
-                    yield previous_pr.url
-                    break
+                if known_pull_request.merged_at >= median_pr_time:
+                    continue
+
+                if known_pull_request.body and "upstream merge" in known_pull_request.body.lower():
+                    continue
+
+                if "upstream merge" in known_pull_request.title.lower():
+                    continue
+
+                ancestors.add(known_pull_request)
+
+        def sort_by_oldest(element: KnownPullRequest):
+            return element.merged_at
+        ancestors: list[KnownPullRequest] = list(ancestors)
+        ancestors.sort(key=sort_by_oldest)
+
+        ancestor_links = []
+        for ancestor in ancestors:
+            ancestor_links.append(f"#{ancestor.pull_request_id} - {ancestor.title}")
+
+        return ancestor_links

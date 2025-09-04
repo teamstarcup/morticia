@@ -21,7 +21,7 @@ def get_repo_links_from_text(text: str) -> list[str]:
 def repo_id_from_url(url: str) -> str:
     url = url.replace(GITHUB_URL, "")
     organization_name, repo_name, *_ = url.split("/")
-    return f"{organization_name}/{repo_name}"
+    return f"{organization_name}/{repo_name}".lower()
 
 
 def repo_base_url(url: str) -> str:

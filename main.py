@@ -167,7 +167,7 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
         display_duration = pretty_duration(duration)
 
         await ctx.send(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
-    except Exception as e:
+    except Exception:
         await complain(ctx)
 
 

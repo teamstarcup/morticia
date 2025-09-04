@@ -21,9 +21,21 @@ class MyView(discord.ui.View):
         await status.write_line(f"Fetching ancestors ...")
         await status.flush()
 
+        # for ancestor in self.morticia.get_ancestors(self.pull_request_url):
+        #     await status.write_line(ancestor)
+        #     await status.flush()
+
+        ancestors = ""
         for ancestor in self.morticia.get_ancestors(self.pull_request_url):
-            await status.write_line(ancestor)
-            await status.flush()
+            ancestors += ancestor + "\n"
+
+            if len(ancestors) > 1500:
+                await status.write_line(ancestors)
+                await status.flush()
+                ancestors = ""
+
+        await status.write_line(ancestors)
+        await status.flush()
 
         await status.write_line("Finished.")
         await status.flush()
