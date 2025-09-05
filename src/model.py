@@ -83,6 +83,7 @@ class KnownRepo(Base, UniqueMixin):
     def unique_hash(cls, repo_id):
         return repo_id
 
+    # noinspection PyMethodOverriding
     @classmethod
     def unique_filter(cls, query, repo_id):
         return query.filter(KnownRepo.repo_id == repo_id)
@@ -98,6 +99,7 @@ class KnownFile(Base, UniqueMixin):
     def unique_hash(cls, repo_id, file_path):
         return f"{repo_id}@{file_path}"
 
+    # noinspection PyMethodOverriding
     @classmethod
     def unique_filter(cls, query, repo_id, file_path):
         return query.filter(KnownFile.repo_id == repo_id).filter(KnownFile.file_path == file_path)
@@ -153,6 +155,7 @@ class KnownPullRequest(Base, UniqueMixin):
     def unique_hash(cls, pull_request_id, repo_id):
         return f"{repo_id}#{pull_request_id}"
 
+    # noinspection PyMethodOverriding
     @classmethod
     def unique_filter(cls, query, pull_request_id, repo_id):
         return query.filter(KnownPullRequest.pull_request_id == pull_request_id).filter(KnownPullRequest.repo_id == repo_id)
@@ -189,6 +192,7 @@ class KnownFileChange(Base, UniqueMixin):
     def unique_hash(cls, pull_request_id, repo_id, file_path):
         return f"{repo_id}#{pull_request_id}:{file_path}"
 
+    # noinspection PyMethodOverriding
     @classmethod
     def unique_filter(cls, query, pull_request_id, repo_id, file_path):
         return query.filter(KnownFileChange.pull_request_id == pull_request_id).filter(KnownFileChange.repo_id == repo_id).filter(KnownFileChange.file_path == file_path)
