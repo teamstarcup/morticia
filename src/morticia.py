@@ -118,7 +118,7 @@ class Morticia:
 
         # used for filtering ancestor PRs
         median_pr_time = median_pr.merged and median_pr.merged_at or median_pr.created_at
-        median_pr_time = int(median_pr_time.timestamp())
+        median_pr_time = median_pr_time.replace(tzinfo=None)
 
         ancestors: set[KnownPullRequest] = set()
         for relevant_file_path in relevant_file_paths:
