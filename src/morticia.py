@@ -1,6 +1,5 @@
 import logging
 import os
-from datetime import datetime, timezone
 
 import sqlalchemy
 from dulwich import porcelain
@@ -82,6 +81,19 @@ class Morticia:
             self.session.commit()
             # break
 
+    def get_upstream_merge_prs(self, repo_id: RepoId):
+        """
+        Returns a list of KnownPullRequests, which are not necessarily merged.
+        :param repo_id:
+        :return:
+        """
+        statement = (sqlalchemy.select(KnownFileChange, KnownPullRequest)
+                     .where(KnownFileChange.repo_id == str(repo_id))
+                     .where(KnownFileChange.file_path == "Resources/Changelog/Changelog.yml")
+                     .join(KnownPullRequest, onclause=KnownFileChange.pull_request))
+        known_file_changes = self.session.execute(statement).scalars().all()
+        return list(map(lambda change: change.pull_request, known_file_changes))
+
     def get_ancestors(self, pr_id: PullRequestId):
         """
         Search for a list of ancestor PRs for the given pull request.
@@ -102,6 +114,8 @@ class Morticia:
         median_pr_time = median_pr.merged and median_pr.merged_at or median_pr.created_at
         median_pr_time = median_pr_time.replace(tzinfo=None)
 
+        known_upstream_merges = self.get_upstream_merge_prs(repo_id)
+
         ancestors: set[KnownPullRequest] = set()
         for relevant_file_path in relevant_file_paths:
             known_file_changes = self.session.execute(
@@ -121,10 +135,7 @@ class Morticia:
                 if known_pull_request.merged_at >= median_pr_time:
                     continue
 
-                if known_pull_request.body and "upstream merge" in known_pull_request.body.lower():
-                    continue
-
-                if "upstream merge" in known_pull_request.title.lower():
+                if known_pull_request in known_upstream_merges:
                     continue
 
                 ancestors.add(known_pull_request)

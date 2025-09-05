@@ -5,7 +5,7 @@ from typing import Optional
 import github.File
 from github.PullRequest import PullRequest
 from sqlalchemy import MetaData, ForeignKey
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def _unique(session, cls, hashfunc, queryfunc, constructor, arg, kw):
@@ -177,6 +177,8 @@ class KnownFileChange(Base, UniqueMixin):
     previous_file_path: Mapped[Optional[str]]
     patch: Mapped[Optional[str]]
     sha: Mapped[str]
+
+    pull_request: Mapped[KnownPullRequest] = relationship()
 
     def update(self, file: github.File.File,):
         self.file_path = file.filename
