@@ -40,4 +40,21 @@ class MyView(discord.ui.View):
 
     @discord.ui.button(label="Find descendants", style=discord.ButtonStyle.primary)
     async def find_descendants(self, button: discord.Button, interaction: discord.Interaction):
-        await interaction.response.send_message("You clicked the button!")
+        status = StatusMessage(interaction)
+        await status.write_line(f"Fetching descendants ...")
+        await status.flush()
+
+        descendants = ""
+        for descendant in self.morticia.get_descendants(self.pull_request_id):
+            descendants += descendant + "\n"
+
+            if len(descendants) > 1500:
+                await status.write_line(descendants)
+                await status.flush()
+                descendants = ""
+
+        await status.write_line(descendants)
+        await status.flush()
+
+        await status.write_line("Finished.")
+        await status.flush()

@@ -162,3 +162,59 @@ class Morticia:
             ancestor_links.append(f"#{ancestor.pull_request_id} - {ancestor.title}")
 
         return ancestor_links
+
+    def get_descendants(self, pr_id: PullRequestId):
+        """
+        Search for a list of descendant PRs for the given pull request.
+        :param pr_id:
+        :return:
+        """
+        median_pr = self.get_pull_request(pr_id)
+        repo_id = pr_id.repo_id()
+
+        # gather list of files to search history
+        relevant_file_paths: set[str] = set()
+        for file in median_pr.get_files():
+            match file.status:
+                case "added":
+                    relevant_file_paths.add(file.filename)
+
+        median_pr_time = median_pr.merged and median_pr.merged_at or median_pr.created_at
+        median_pr_time = median_pr_time.replace(tzinfo=None)
+
+        known_upstream_merges = self.get_upstream_merge_prs(repo_id)
+
+        descendants: set[KnownPullRequest] = set()
+        for relevant_file_path in relevant_file_paths:
+            known_file_changes = self.session.execute(
+                sqlalchemy.select(KnownFileChange)
+                .where(KnownFileChange.repo_id == str(repo_id))
+                .filter(
+                    ((KnownFileChange.file_path == relevant_file_path) | (KnownFileChange.previous_file_path == relevant_file_path))
+                )
+            )
+
+            for known_file_change in known_file_changes.scalars():
+                known_pull_request = self.session.execute(sqlalchemy.select(KnownPullRequest).filter((KnownPullRequest.repo_id == str(repo_id)) & (KnownPullRequest.pull_request_id == known_file_change.pull_request_id))).scalar()
+
+                if not known_pull_request.merged:
+                    continue
+
+                if known_pull_request.merged_at <= median_pr_time:
+                    continue
+
+                if known_pull_request in known_upstream_merges:
+                    continue
+
+                descendants.add(known_pull_request)
+
+        def sort_by_oldest(element: KnownPullRequest):
+            return element.merged_at
+        descendants: list[KnownPullRequest] = list(descendants)
+        descendants.sort(key=sort_by_oldest)
+
+        descendant_links = []
+        for descendant in descendants:
+            descendant_links.append(f"#{descendant.pull_request_id} - {descendant.title}")
+
+        return descendant_links
