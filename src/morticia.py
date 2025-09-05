@@ -1,15 +1,15 @@
 import logging
 import os
+from datetime import datetime, timezone
 
 import sqlalchemy
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
 from github import Github, Auth, UnknownObjectException
-from slugify import slugify
 from sqlalchemy.orm import Session
 
 from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange
-from src.utils import repo_base_url, repo_id_from_url
+from src.utils import RepoId, PullRequestId
 
 REPOSITORIES_DIR = "./repositories"
 
@@ -26,51 +26,33 @@ class Morticia:
         self.github.close()
 
     @classmethod
-    def repo_slug_from_url(cls, url: str) -> str:
-        """
-        Takes a GitHub URL relevant to a repository and returns an org-repo slug for that repository.
-        :param url:
-        :return:
-        """
-        return slugify(repo_id_from_url(url))
-
-    @classmethod
-    def issue_id_from_url(cls, url: str) -> int:
-        last_slash = url.rindex("/")
-        return int(url[last_slash + 1:])
-
-    @classmethod
-    def pull_repo(cls, url: str):
+    def pull_repo(cls, repo_id: RepoId):
         """
         Pulls (or clones) a repository's default branch down to the ``./repositories`` directory.
         """
         os.makedirs(REPOSITORIES_DIR, exist_ok=True)
-        repo_url = repo_base_url(url)
-        repo_slug = Morticia.repo_slug_from_url(repo_url)
-        repo_dir = f"{REPOSITORIES_DIR}/{repo_slug}"
+        repo_dir = f"{REPOSITORIES_DIR}/{repo_id.slug()}"
 
         try:
             repo = porcelain.Repo(repo_dir)
             porcelain.pull(repo, force=True)
         except NotGitRepository as _:
-            repo = porcelain.clone(repo_url, repo_dir)
+            repo = porcelain.clone(repo_id.url(), repo_dir)
 
         return repo
 
-    def get_github_repo(self, url: str):
-        return self.github.get_repo(repo_id_from_url(url))
+    def get_github_repo(self, repo_id: RepoId):
+        return self.github.get_repo(str(repo_id))
 
-    def get_pull_request(self, url: str):
-        repo = self.get_github_repo(url)
-        pr_id = Morticia.issue_id_from_url(url)
-        return repo.get_pull(pr_id)
+    def get_pull_request(self, pr_id: PullRequestId):
+        repo = self.get_github_repo(pr_id.repo_id())
+        return repo.get_pull(pr_id.number)
 
-    def index_repo(self, repo_url: str):
-        repo = self.get_github_repo(repo_url)
-        repo_id = repo_id_from_url(repo_url)
+    def index_repo(self, repo_id: RepoId):
+        repo = self.get_github_repo(repo_id)
 
         # make sure this was inserted because foreignkey depends on it
-        KnownRepo.as_unique(self.session, repo_id=repo_id)
+        KnownRepo.as_unique(self.session, repo_id=str(repo_id))
         self.session.commit()
 
         highest_pull_request_id = repo.get_pulls(state="all", direction="desc").get_page(0)[0].number
@@ -82,7 +64,7 @@ class Morticia:
             except UnknownObjectException:
                 continue
 
-            known_pr = KnownPullRequest.as_unique(self.session, pull_request_id=pull_request.number, repo_id=repo_id)
+            known_pr = KnownPullRequest.as_unique(self.session, pull_request_id=pull_request.number, repo_id=str(repo_id))
             known_pr.update(pull_request)
             self.session.commit()
 
@@ -92,22 +74,22 @@ class Morticia:
 
             for file in pull_request.get_files():
                 # make sure this was inserted because foreignkey depends on it
-                KnownFile.as_unique(self.session, repo_id=repo_id, file_path=file.filename)
+                KnownFile.as_unique(self.session, repo_id=str(repo_id), file_path=file.filename)
 
-                known_file_change = KnownFileChange.as_unique(self.session, pull_request_id=pull_request.number, repo_id=repo_id, file_path=file.filename)
+                known_file_change = KnownFileChange.as_unique(self.session, pull_request_id=pull_request.number, repo_id=str(repo_id), file_path=file.filename)
                 known_file_change.update(file)
 
             self.session.commit()
             # break
 
-    def get_ancestors(self, url: str):
+    def get_ancestors(self, pr_id: PullRequestId):
         """
-        Search for a list of ancestor PRs for the given PR url.
-        :param url:
+        Search for a list of ancestor PRs for the given pull request.
+        :param pr_id:
         :return:
         """
-        median_pr = self.get_pull_request(url)
-        repo_id = repo_id_from_url(url)
+        median_pr = self.get_pull_request(pr_id)
+        repo_id = pr_id.repo_id()
 
         # gather list of files to search history
         relevant_file_paths: set[str] = set()
@@ -124,14 +106,14 @@ class Morticia:
         for relevant_file_path in relevant_file_paths:
             known_file_changes = self.session.execute(
                 sqlalchemy.select(KnownFileChange)
-                .where(KnownFileChange.repo_id == repo_id)
+                .where(KnownFileChange.repo_id == str(repo_id))
                 .filter(
                     ((KnownFileChange.file_path == relevant_file_path) | (KnownFileChange.previous_file_path == relevant_file_path))
                 )
             )
 
             for known_file_change in known_file_changes.scalars():
-                known_pull_request = self.session.execute(sqlalchemy.select(KnownPullRequest).filter((KnownPullRequest.repo_id == repo_id) & (KnownPullRequest.pull_request_id == known_file_change.pull_request_id))).scalar()
+                known_pull_request = self.session.execute(sqlalchemy.select(KnownPullRequest).filter((KnownPullRequest.repo_id == str(repo_id)) & (KnownPullRequest.pull_request_id == known_file_change.pull_request_id))).scalar()
 
                 if not known_pull_request.merged:
                     continue

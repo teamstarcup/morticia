@@ -3,6 +3,7 @@ from discord.ui import Item
 
 from src.morticia import Morticia
 from src.status import StatusMessage
+from src.utils import PullRequestId
 
 
 class MyView(discord.ui.View):
@@ -10,6 +11,7 @@ class MyView(discord.ui.View):
         super().__init__(*items)
         self.morticia = morticia
         self.pull_request_url = pull_request_url
+        self.pull_request_id = PullRequestId.from_url(pull_request_url)
 
     @discord.ui.button(label="Autoport", style=discord.ButtonStyle.primary)
     async def autoport(self, button: discord.Button, interaction: discord.Interaction):
@@ -21,12 +23,8 @@ class MyView(discord.ui.View):
         await status.write_line(f"Fetching ancestors ...")
         await status.flush()
 
-        # for ancestor in self.morticia.get_ancestors(self.pull_request_url):
-        #     await status.write_line(ancestor)
-        #     await status.flush()
-
         ancestors = ""
-        for ancestor in self.morticia.get_ancestors(self.pull_request_url):
+        for ancestor in self.morticia.get_ancestors(self.pull_request_id):
             ancestors += ancestor + "\n"
 
             if len(ancestors) > 1500:

@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from src.morticia import Morticia
-from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration, repo_id_from_url
+from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration, RepoId, PullRequestId
 from src.views import MyView
 
 dotenv.load_dotenv(".env")
@@ -54,6 +54,7 @@ def complains(func):
     :return:
     """
     async def wrapper(*args, **kwds):
+        # noinspection PyBroadException
         try:
             await func(*args, **kwds)
         except Exception:
@@ -86,9 +87,8 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
 
     pull_request_url = matches[0]
 
-    repo_id = repo_id_from_url(pull_request_url)
-
-    pull_request = morticia.get_pull_request(pull_request_url)
+    pull_request_id = PullRequestId.from_url(pull_request_url)
+    pull_request = morticia.get_pull_request(pull_request_id)
 
     body = pull_request.body or ""
     body_summary = re.sub(r"<!--.*?-->", "", body)[:300]
@@ -146,22 +146,22 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error: d
     options = [],
 )
 async def index(ctx: discord.ApplicationContext, repo_url: str):
+    # noinspection PyBroadException
     try:
         matches = get_repo_links_from_text(repo_url)
         if matches == 0:
             await ctx.respond("Hey, I didn't find any GitHub repository links there.")
             return
 
-        repo_url = matches[0]
-        repo_id = repo_id_from_url(repo_url)
-        pull_request_count = morticia.get_github_repo(repo_url).get_pulls("all").totalCount
+        repo_id = RepoId.from_url(matches[0])
+        pull_request_count = morticia.get_github_repo(repo_id).get_pulls("all").totalCount
         estimated_seconds = pull_request_count * 2.5
         estimate = pretty_duration(estimated_seconds)
         await ctx.respond(f"Okay, I'll go index {repo_id}. This is probably going to take a lot longer than 15 minutes,"
                           f" so I'll ping you when I'm done!\n\nEstimated time: {estimate}")
 
         time_start = time.time()
-        morticia.index_repo(repo_url)
+        morticia.index_repo(repo_id)
         time_stop = time.time()
         duration = int(time_stop - time_start)
         display_duration = pretty_duration(duration)
