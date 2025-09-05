@@ -94,6 +94,16 @@ class Morticia:
         known_file_changes = self.session.execute(statement).scalars().all()
         return list(map(lambda change: change.pull_request, known_file_changes))
 
+    HIGH_FREQUENCY_FILES = {
+        "Resources/Prototypes/Entities/Structures/Machines/lathe.yml",
+        "Resources/Prototypes/tags.yml",
+        "Resources/Prototypes/Loadouts/loadout_groups.yml",
+        "Resources/Prototypes/Entities/Mobs/NPCs/animals.yml",
+        "Resources/Prototypes/Entities/Objects/Fun/toys.yml",
+        "Resources/Prototypes/Loadouts/Miscellaneous/trinkets.yml",
+        "Resources/Prototypes/_Impstation/Loadouts/Miscellaneous/trinkets.yml",
+    }
+
     def get_ancestors(self, pr_id: PullRequestId):
         """
         Search for a list of ancestor PRs for the given pull request.
@@ -106,6 +116,8 @@ class Morticia:
         # gather list of files to search history
         relevant_file_paths: set[str] = set()
         for file in median_pr.get_files():
+            if file.filename in Morticia.HIGH_FREQUENCY_FILES:
+                continue
             match file.status:
                 case "modified" | "changed" | "renamed" | "deleted":
                     relevant_file_paths.add(file.filename)
