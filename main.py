@@ -9,6 +9,7 @@ import traceback
 
 import discord
 import dotenv
+from discord.ext.commands import cooldown
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -70,6 +71,30 @@ def complains(func):
 @bot.event
 async def on_ready():
     log.info(f"We have logged in as {bot.user}")
+
+
+# noinspection PyTypeChecker
+@bot.slash_command(
+    name="pet",
+    description="You reach out to pet Morticia...",
+    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+)
+@cooldown(1, 10, discord.ext.commands.BucketType.user)
+async def pet(ctx: discord.ApplicationContext):
+    success = random.random() >= 0.7
+    if not success:
+        await ctx.respond(f"-# You reach out to pet Morticia, but she is busy raccooning around.")
+    else:
+        await ctx.respond(f"-# You pet Morticia on her trash eating little head. 💕 🦝")
+
+
+@pet.error
+@complains
+async def on_command_error(ctx, error):
+    if isinstance(error, discord.ext.commands.CommandOnCooldown):
+        await ctx.respond(f"This command is on cooldown, you can use it in {round(error.retry_after, 2)} seconds", ephemeral=True)
+    else:
+        raise error
 
 
 @bot.message_command(
