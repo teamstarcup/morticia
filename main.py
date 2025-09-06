@@ -1,5 +1,7 @@
+import encodings
 import logging
 import os
+import random
 import re
 import sys
 import time
@@ -42,7 +44,7 @@ async def complain(ctx: discord.ApplicationContext):
     traceback.print_exc()
     session.rollback()
     message = f"{ctx.user.mention} Unhandled exception:"
-    with open("trace.txt", "w") as f:
+    with open("trace.txt", "w", encoding=encodings.utf_8) as f:
         f.write(traceback.format_exc())
     await ctx.send(message, file=discord.File(fp="trace.txt"))
 
