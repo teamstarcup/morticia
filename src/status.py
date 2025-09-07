@@ -4,6 +4,7 @@ MAX_MESSAGE_LENGTH = 2000
 FORMATTING_CHARS_LENGTH = 7
 SPINNER_STATES = 4
 
+MAGIC_RUNES = "[0;2m[0;36m$[0m"
 
 class StatusMessage:
     ctx: discord.ApplicationContext
@@ -32,7 +33,7 @@ class StatusMessage:
         await self.write_line(message)
 
     async def flush(self) -> None:
-        content = f"```\n{self.buffered_text}```"
+        content = f"```ansi\n{self.buffered_text}```"
         if self.next_message:
             self.message = await self.ctx.respond(content)
             self.next_message = False

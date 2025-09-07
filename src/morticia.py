@@ -1,12 +1,14 @@
 
 import logging
 
+import requests
 import sqlalchemy
 from github import Github, Auth, UnknownObjectException
 from sqlalchemy.orm import Session
 
 from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange
-from .git import LocalRepo, RepoId, PullRequestId
+from .git import LocalRepo, RepoId, PullRequestId, GitCommandException
+from .status import MAGIC_RUNES
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +27,13 @@ class Morticia:
     def github_username(self):
         return self.github.get_user().login
 
+    def get_github_repo(self, repo_id: RepoId):
+        return self.github.get_repo(str(repo_id))
+
+    def get_pull_request(self, pr_id: PullRequestId):
+        repo = self.get_github_repo(pr_id.repo_id())
+        return repo.get_pull(pr_id.number)
+
     async def get_local_repo(self, repo_id: RepoId):
         """
         Obtains an existing LocalRepo object, or clones it if it does not yet exist.
@@ -33,9 +42,7 @@ class Morticia:
         """
         return await LocalRepo.open(repo_id, self.get_github_repo(repo_id).default_branch)
 
-    async def sync_work_repo(self):
-        yield f"Opening {self.work_repo_id} ..."
-        work_repo = await self.get_local_repo(self.work_repo_id)
+    async def sync_work_repo(self, work_repo: LocalRepo):
         remote_url = await work_repo.get_remote_url("origin")
         remote_url = remote_url.replace("://github.com", f"://{self.github_username()}:{self.auth.token}@github.com")
         await work_repo.set_remote_url("origin", remote_url)
@@ -43,6 +50,7 @@ class Morticia:
         yield f"Synchronizing with {self.home_repo_id} ..."
         yield f"-> Pulling {self.work_repo_id}:{work_repo.default_branch} ..."
         await work_repo.abort_merge()  # clear previous bad state
+        await work_repo.abort_patch()
         await work_repo.sync_branch_with_remote("origin", work_repo.default_branch)
 
         yield f"-> Fetching {self.home_repo_id} ..."
@@ -55,19 +63,37 @@ class Morticia:
         await work_repo.push("origin", force=True)
 
     async def start_port(self, pr_id: PullRequestId):
-        async for message in self.sync_work_repo():
+        yield f"Opening {self.work_repo_id} ..."
+        work_repo = await self.get_local_repo(self.work_repo_id)
+
+        async for message in self.sync_work_repo(work_repo):
             yield message
 
+        # add target repo as remote to local work repo
+        target_repo_id = pr_id.repo_id()
+        target_repo_slug = target_repo_id.slug()
+        yield (f"{MAGIC_RUNES} git remote add {target_repo_slug} {target_repo_id.url()}\n"
+               f"{MAGIC_RUNES} git fetch {target_repo_slug}")
+        await work_repo.track_and_fetch_remote(target_repo_id)
+
         # create new branch in local work repo
+        branch_name = pr_id.slug()
+        yield f"{MAGIC_RUNES} git checkout -b {branch_name}"
+        await work_repo.checkout(branch_name)
+
+        yield f"Downloading and applying patch file for {pr_id} ..."
+        target_pull_request = self.get_pull_request(pr_id)
+        try:
+            naive_resolution_applied = await work_repo.apply_patch_from_url_conflict_resolving(target_pull_request.patch_url)
+        except GitCommandException as e:
+            yield f"Encountered unresolvable merge conflict: {e.stdout}"
+            work_repo.abort_patch()
+            return
+
+        if naive_resolution_applied:
+            yield f"WARNING: Some merge conflicts were solved with naive conflict resolution!"
 
         yield f"Complete!"
-
-    def get_github_repo(self, repo_id: RepoId):
-        return self.github.get_repo(str(repo_id))
-
-    def get_pull_request(self, pr_id: PullRequestId):
-        repo = self.get_github_repo(pr_id.repo_id())
-        return repo.get_pull(pr_id.number)
 
     def index_repo(self, repo_id: RepoId):
         repo = self.get_github_repo(repo_id)
