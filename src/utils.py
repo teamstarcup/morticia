@@ -17,6 +17,10 @@ class RepoId:
     org_name: str
     repo_name: str
 
+    def __init__(self, org_name: str = "", repo_name: str = ""):
+        self.org_name = org_name
+        self.repo_name = repo_name
+
     def __repr__(self):
         return f"{self.org_name}/{self.repo_name}".lower()
 

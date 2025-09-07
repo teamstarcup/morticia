@@ -15,7 +15,10 @@ class MyView(discord.ui.View):
 
     @discord.ui.button(label="Autoport", style=discord.ButtonStyle.primary)
     async def autoport(self, button: discord.Button, interaction: discord.Interaction):
-        await interaction.response.send_message("You clicked the button!")
+        status = StatusMessage(interaction)
+        for msg in self.morticia.start_port(self.pull_request_id):
+            await status.write_line(msg)
+            await status.flush()
 
     @discord.ui.button(label="Find ancestors", style=discord.ButtonStyle.primary)
     async def find_ancestors(self, button: discord.Button, interaction: discord.Interaction):

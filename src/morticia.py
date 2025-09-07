@@ -1,9 +1,11 @@
+
 import logging
 import os
 
 import sqlalchemy
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
+from dulwich.repo import Repo
 from github import Github, Auth, UnknownObjectException
 from sqlalchemy.orm import Session
 
@@ -20,25 +22,49 @@ class Morticia:
         self.auth = Auth.Token(auth_token)
         self.github = Github(auth=self.auth)
         self.session = session
+        self.home_repo_id = RepoId("teamstarcup", "starcup")
+        self.work_repo_id = RepoId("teamstarcup-bot", "starcup")
 
     def close(self) -> None:
         self.github.close()
 
-    @classmethod
-    def pull_repo(cls, repo_id: RepoId):
+    def pull_repo(self, repo_id: RepoId):
         """
         Pulls (or clones) a repository's default branch down to the ``./repositories`` directory.
         """
         os.makedirs(REPOSITORIES_DIR, exist_ok=True)
         repo_dir = f"{REPOSITORIES_DIR}/{repo_id.slug()}"
+        github_repo = self.get_github_repo(repo_id)
+        default_branch = github_repo.default_branch
 
         try:
             repo = porcelain.Repo(repo_dir)
+            porcelain.fetch(repo, "origin")
+            porcelain.checkout(repo, default_branch, force=True)
             porcelain.pull(repo, force=True)
         except NotGitRepository as _:
             repo = porcelain.clone(repo_id.url(), repo_dir)
 
         return repo
+
+    def track_and_fetch_remote(self, work_repo: Repo, target_repo_id: RepoId):
+        try:
+            porcelain.remote_add(work_repo, target_repo_id.slug(), target_repo_id.url())
+        except porcelain.RemoteExists:
+            pass
+        porcelain.fetch(work_repo, target_repo_id.slug())
+
+    def sync_with_remote_branch(self, work_repo: Repo, target_repo_id: RepoId, branch: str):
+        self.track_and_fetch_remote(work_repo, target_repo_id)
+        porcelain.pull(work_repo, target_repo_id.slug(), branch, fast_forward=False, force=True)
+        porcelain.reset(work_repo, "hard")
+
+    def start_port(self, pr_id: PullRequestId):
+        yield f"Pulling {self.work_repo_id} ..."
+        work_repo = self.pull_repo(self.work_repo_id)
+        yield f"Synchronizing with {self.home_repo_id} ..."
+        self.sync_with_remote_branch(work_repo, self.home_repo_id, "main")
+        yield f"Complete."
 
     def get_github_repo(self, repo_id: RepoId):
         return self.github.get_repo(str(repo_id))

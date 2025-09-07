@@ -77,7 +77,7 @@ async def on_ready():
 @bot.slash_command(
     name="pet",
     description="You reach out to pet Morticia...",
-    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+    #guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
 )
 @cooldown(1, 10, discord.ext.commands.BucketType.user)
 async def pet(ctx: discord.ApplicationContext):
