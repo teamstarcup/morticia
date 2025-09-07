@@ -3,7 +3,7 @@ from discord.ui import Item
 
 from src.morticia import Morticia
 from src.status import StatusMessage
-from .git import PullRequestId, GitCommandException
+from ..git import PullRequestId, GitCommandException
 
 
 class MyView(discord.ui.View):

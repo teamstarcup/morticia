@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from src.git import PullRequestId, RepoId
 from src.morticia import Morticia
 from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration, complains, complain
-from src.views import MyView
+from src.ui.views import MyView
+from src.ui.modals import BeginPortModal
 
 dotenv.load_dotenv(".env")
 
@@ -176,6 +177,20 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
         await ctx.send(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
     except Exception:
         await complain(ctx)
+
+
+@bot.message_command(
+    name="port",
+    description="Begin porting for this PR. You will be prompted for more details.",
+    default_member_permissions=discord.Permissions(
+        discord.Permissions.ban_members.flag
+    ),
+    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+)
+@complains
+async def port(ctx: discord.ApplicationContext, message: discord.Message):
+    modal = BeginPortModal(message, title="Begin Port")
+    await ctx.send_modal(modal)
 
 
 with Session(engine) as session:
