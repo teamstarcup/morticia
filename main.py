@@ -1,11 +1,9 @@
-import encodings
 import logging
 import os
 import random
 import re
 import sys
 import time
-import traceback
 
 import discord
 import dotenv
@@ -13,8 +11,9 @@ from discord.ext.commands import cooldown
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from src.git import PullRequestId, RepoId
 from src.morticia import Morticia
-from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration, RepoId, PullRequestId
+from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration, complains, complain
 from src.views import MyView
 
 dotenv.load_dotenv(".env")
@@ -37,35 +36,16 @@ db_pass = os.environ.get("POSTGRES_PASSWORD")
 db_name = os.environ.get("POSTGRES_DB")
 engine = create_engine(f'postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}')
 
+
+class MorticiaBot(discord.Bot):
+    session: Session
+
+    def __init__(self, *args, **options):
+        super().__init__(*args, **options)
+
+
 intents = discord.Intents.all()
-bot = discord.Bot()
-
-
-async def complain(ctx: discord.ApplicationContext):
-    traceback.print_exc()
-    session.rollback()
-    message = f"{ctx.user.mention} Unhandled exception:"
-    with open("trace.txt", "w", encoding="utf-8") as f:
-        f.write(traceback.format_exc())
-    await ctx.send(message, file=discord.File(fp="trace.txt"))
-
-
-def complains(func):
-    """
-    Decorator function for bot commands to automatically respond with any unhandled exceptions.
-    :param func:
-    :return:
-    """
-    async def wrapper(*args, **kwds):
-        # noinspection PyBroadException
-        try:
-            await func(*args, **kwds)
-        except Exception:
-            ctx: discord.ApplicationContext = args[0]
-            await complain(ctx)
-        return None
-
-    return wrapper
+bot = MorticiaBot()
 
 
 @bot.event
@@ -200,6 +180,7 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
 
 with Session(engine) as session:
     morticia = Morticia(token, session)
+    bot.session = session
     bot.run(os.environ.get("DISCORD_TOKEN"))
 
 morticia.close()

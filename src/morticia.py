@@ -1,18 +1,12 @@
 
 import logging
-import os
 
 import sqlalchemy
-from dulwich import porcelain
-from dulwich.errors import NotGitRepository
-from dulwich.repo import Repo
 from github import Github, Auth, UnknownObjectException
 from sqlalchemy.orm import Session
 
 from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange
-from src.utils import RepoId, PullRequestId
-
-REPOSITORIES_DIR = "./repositories"
+from .git import LocalRepo, RepoId, PullRequestId
 
 log = logging.getLogger(__name__)
 
@@ -28,43 +22,45 @@ class Morticia:
     def close(self) -> None:
         self.github.close()
 
-    def pull_repo(self, repo_id: RepoId):
+    def github_username(self):
+        return self.github.get_user().login
+
+    async def get_local_repo(self, repo_id: RepoId):
         """
-        Pulls (or clones) a repository's default branch down to the ``./repositories`` directory.
+        Obtains an existing LocalRepo object, or clones it if it does not yet exist.
+        :param repo_id:
+        :return:
         """
-        os.makedirs(REPOSITORIES_DIR, exist_ok=True)
-        repo_dir = f"{REPOSITORIES_DIR}/{repo_id.slug()}"
-        github_repo = self.get_github_repo(repo_id)
-        default_branch = github_repo.default_branch
+        return await LocalRepo.open(repo_id, self.get_github_repo(repo_id).default_branch)
 
-        try:
-            repo = porcelain.Repo(repo_dir)
-            porcelain.fetch(repo, "origin")
-            porcelain.checkout(repo, default_branch, force=True)
-            porcelain.pull(repo, force=True)
-        except NotGitRepository as _:
-            repo = porcelain.clone(repo_id.url(), repo_dir)
+    async def sync_work_repo(self):
+        yield f"Opening {self.work_repo_id} ..."
+        work_repo = await self.get_local_repo(self.work_repo_id)
+        remote_url = await work_repo.get_remote_url("origin")
+        remote_url = remote_url.replace("://github.com", f"://{self.github_username()}:{self.auth.token}@github.com")
+        await work_repo.set_remote_url("origin", remote_url)
 
-        return repo
-
-    def track_and_fetch_remote(self, work_repo: Repo, target_repo_id: RepoId):
-        try:
-            porcelain.remote_add(work_repo, target_repo_id.slug(), target_repo_id.url())
-        except porcelain.RemoteExists:
-            pass
-        porcelain.fetch(work_repo, target_repo_id.slug())
-
-    def sync_with_remote_branch(self, work_repo: Repo, target_repo_id: RepoId, branch: str):
-        self.track_and_fetch_remote(work_repo, target_repo_id)
-        porcelain.pull(work_repo, target_repo_id.slug(), branch, fast_forward=False, force=True)
-        porcelain.reset(work_repo, "hard")
-
-    def start_port(self, pr_id: PullRequestId):
-        yield f"Pulling {self.work_repo_id} ..."
-        work_repo = self.pull_repo(self.work_repo_id)
         yield f"Synchronizing with {self.home_repo_id} ..."
-        self.sync_with_remote_branch(work_repo, self.home_repo_id, "main")
-        yield f"Complete."
+        yield f"-> Pulling {self.work_repo_id}:{work_repo.default_branch} ..."
+        await work_repo.abort_merge()  # clear previous bad state
+        await work_repo.sync_branch_with_remote("origin", work_repo.default_branch)
+
+        yield f"-> Fetching {self.home_repo_id} ..."
+        await work_repo.track_and_fetch_remote(self.home_repo_id)
+
+        yield f"-> Pulling {self.home_repo_id}:main ..."
+        await work_repo.sync_branch_with_remote(self.home_repo_id.slug(), "main")
+
+        yield f"-> Pushing {work_repo.default_branch} to {self.work_repo_id} ..."
+        await work_repo.push("origin", force=True)
+
+    async def start_port(self, pr_id: PullRequestId):
+        async for message in self.sync_work_repo():
+            yield message
+
+        # create new branch in local work repo
+
+        yield f"Complete!"
 
     def get_github_repo(self, repo_id: RepoId):
         return self.github.get_repo(str(repo_id))

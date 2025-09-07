@@ -1,6 +1,7 @@
 import re
+import traceback
 
-from slugify import slugify
+import discord
 
 REPO_LINK_PATTERN = re.compile(
     r"(https://github.com/[\w\-_]+/[\w\-_]+/?)"
@@ -9,61 +10,6 @@ REPO_LINK_PATTERN = re.compile(
 PULL_REQUEST_LINK_PATTERN = re.compile(
     r"(https://github.com/[\w\-_]+/[\w\-_]+/pull/\d+)"
 )
-
-GITHUB_URL = "https://github.com/"
-
-
-class RepoId:
-    org_name: str
-    repo_name: str
-
-    def __init__(self, org_name: str = "", repo_name: str = ""):
-        self.org_name = org_name
-        self.repo_name = repo_name
-
-    def __repr__(self):
-        return f"{self.org_name}/{self.repo_name}".lower()
-
-    def url(self):
-        return f"{GITHUB_URL}{str(self)}/"
-
-    def slug(self):
-        return slugify(str(self))
-
-    @classmethod
-    def from_url(cls, url: str):
-        url = url.replace(GITHUB_URL, "")
-        repo_id = RepoId()
-        repo_id.org_name, repo_id.repo_name, *_ = url.split("/")
-        repo_id.org_name = repo_id.org_name.lower()
-        repo_id.repo_name = repo_id.repo_name.lower()
-        return repo_id
-
-
-class PullRequestId:
-    org_name: str
-    repo_name: str
-    number: int
-
-    def __repr__(self):
-        return f"{self.org_name}/{self.repo_name}#{self.number}"
-
-    def repo_id(self):
-        repo_id = RepoId()
-        repo_id.org_name = self.org_name
-        repo_id.repo_name = self.repo_name
-        return repo_id
-
-    @classmethod
-    def from_url(cls, url: str):
-        url = url.replace(GITHUB_URL, "")
-        pr_id = PullRequestId()
-        pr_id.org_name, pr_id.repo_name, *_ = url.split("/")
-        pr_id.org_name = pr_id.org_name.lower()
-        pr_id.repo_name = pr_id.repo_name.lower()
-        last_slash = url.rindex("/")
-        pr_id.number = int(url[last_slash + 1:])
-        return pr_id
 
 
 def get_pr_links_from_text(text: str) -> list[str]:
@@ -88,3 +34,30 @@ def pretty_duration(seconds: int) -> str:
         seconds_text = int(seconds) > 1 and "seconds" or "second"
         pretty_time += f"{seconds:.0f} {seconds_text}"
     return pretty_time
+
+
+async def complain(ctx: discord.ApplicationContext):
+    traceback.print_exc()
+    # session.rollback()
+    message = f"{ctx.user.mention} Unhandled exception:"
+    with open("trace.txt", "w", encoding="utf-8") as f:
+        f.write(traceback.format_exc())
+    await ctx.send(message, file=discord.File(fp="trace.txt"))
+
+
+def complains(func):
+    """
+    Decorator function for bot commands to automatically respond with any unhandled exceptions.
+    :param func:
+    :return:
+    """
+    async def wrapper(*args, **kwds):
+        # noinspection PyBroadException
+        try:
+            await func(*args, **kwds)
+        except Exception:
+            ctx: discord.ApplicationContext = args[0]
+            await complain(ctx)
+        return None
+
+    return wrapper

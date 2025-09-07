@@ -3,7 +3,7 @@ from discord.ui import Item
 
 from src.morticia import Morticia
 from src.status import StatusMessage
-from src.utils import PullRequestId
+from .git import PullRequestId, GitCommandException
 
 
 class MyView(discord.ui.View):
@@ -15,10 +15,16 @@ class MyView(discord.ui.View):
 
     @discord.ui.button(label="Autoport", style=discord.ButtonStyle.primary)
     async def autoport(self, button: discord.Button, interaction: discord.Interaction):
-        status = StatusMessage(interaction)
-        for msg in self.morticia.start_port(self.pull_request_id):
-            await status.write_line(msg)
-            await status.flush()
+        try:
+            status = StatusMessage(interaction)
+            async for msg in self.morticia.start_port(self.pull_request_id):
+                await status.write_line(msg)
+                await status.flush()
+        except GitCommandException as e:
+            print(f"Fuck shit: {e.stdout}")
+            print()
+            print(f"{e.stderr}")
+            print()
 
     @discord.ui.button(label="Find ancestors", style=discord.ButtonStyle.primary)
     async def find_ancestors(self, button: discord.Button, interaction: discord.Interaction):
