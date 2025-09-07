@@ -154,18 +154,7 @@ class LocalRepo:
                     e = e2
 
             if "deleted in HEAD and modified in" not in e.stdout:
-                # oh shit, last call
-                stdout, _ = await self.git("diff --name-status --diff-filter=U")
-                conflicted_files = []
-                for line in stdout.splitlines():
-                    if line.startswith("U  "):
-                        conflicted_files.append(line.split(" ")[1])
-                conflicted_files = " ".join(conflicted_files)
-                try:
-                    await self.subprocess(f"mergiraf solve --keep-backup=false {conflicted_files}")
-                except CommandException as mergiraf_exception:
-                    print(f"Failed to mergiraf: {mergiraf_exception.stdout} {mergiraf_exception.stderr}")
-                    raise e
+                raise e
         return naive_resolution_applied
 
     async def apply_patch_from_url_conflict_resolving(self, patch_url: str, extra_options: str = ""):
