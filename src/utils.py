@@ -90,10 +90,8 @@ def obscure_references(message: str) -> str:
 
     # explicit issue refs: impstation/imp-station-14#123
     for match in EXPLICIT_ISSUE_PATTERN.findall(message):
-        match: re.Match = match
-        reference = match.group(0)
-        repo_id, issue_number = reference.split("#")
-        message = message.replace(reference, f"[{reference}]({INDIRECT_BASE_URL}{repo_id}/pull/{issue_number})")
+        repo_id, issue_number = match.split("#")
+        message = message.replace(match, f"[{match}]({INDIRECT_BASE_URL}{repo_id}/pull/{issue_number})")
     message = EXPLICIT_ISSUE_PATTERN.sub(rf"`\1`", message)
 
     # absolute URLs: https://github.com/impstation/imp-station-14/pull/123
