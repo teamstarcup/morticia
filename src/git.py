@@ -150,6 +150,7 @@ class LocalRepo:
                 await self.git("add --all")
                 try:
                     await self.git("am --continue")
+                    break
                 except GitCommandException as e2:
                     e = e2
 
