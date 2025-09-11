@@ -16,15 +16,9 @@ class MyView(discord.ui.View):
     @discord.ui.button(label="Autoport", style=discord.ButtonStyle.primary)
     async def autoport(self, button: discord.Button, interaction: discord.Interaction):
         try:
-            status = StatusMessage(interaction)
-            async for msg in self.morticia.start_port(self.pull_request_id):
-                await status.write_line(msg)
-                await status.flush()
+            await self.morticia.start_port(self.pull_request_id, interaction)
         except GitCommandException as e:
-            print(f"Fuck shit: {e.stdout}")
-            print()
-            print(f"{e.stderr}")
-            print()
+            await interaction.respond(f"{interaction.user.mention} Encountered a fatal error: \n{e.stdout}\n{e.stderr}")
 
     @discord.ui.button(label="Find ancestors", style=discord.ButtonStyle.primary)
     async def find_ancestors(self, button: discord.Button, interaction: discord.Interaction):

@@ -1,14 +1,14 @@
 
 import logging
 
-import requests
+import discord
 import sqlalchemy
 from github import Github, Auth, UnknownObjectException
 from sqlalchemy.orm import Session
 
 from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange
-from .git import LocalRepo, RepoId, PullRequestId, GitCommandException
-from .status import MAGIC_RUNES
+from .git import LocalRepo, RepoId, PullRequestId, GitCommandException, MergeConflictsException
+from .status import StatusMessage
 from .utils import obscure_references, qualify_implicit_issues
 
 log = logging.getLogger(__name__)
@@ -48,56 +48,57 @@ class Morticia:
         remote_url = remote_url.replace("://github.com", f"://{self.github_username()}:{self.auth.token}@github.com")
         await work_repo.set_remote_url("origin", remote_url)
 
-        yield f"Synchronizing with {self.home_repo_id} ..."
-        yield f"-> Pulling {self.work_repo_id}:{work_repo.default_branch} ..."
         await work_repo.abort_merge()  # clear previous bad state
         await work_repo.abort_patch()
         await work_repo.abort_cherry_pick()
         await work_repo.sync_branch_with_remote("origin", work_repo.default_branch)
 
-        yield f"-> Fetching {self.home_repo_id} ..."
         await work_repo.track_and_fetch_remote(self.home_repo_id)
 
-        yield f"-> Pulling {self.home_repo_id}:main ..."
         await work_repo.sync_branch_with_remote(self.home_repo_id.slug(), "main")
 
-        yield f"-> Pushing {work_repo.default_branch} to {self.work_repo_id} ..."
         await work_repo.push("origin", force=True)
 
-    async def start_port(self, pr_id: PullRequestId):
-        yield f"Opening {self.work_repo_id} ..."
-        work_repo = await self.get_local_repo(self.work_repo_id)
+    async def start_port(self, pr_id: PullRequestId, interaction: discord.Interaction):
+        status = StatusMessage(interaction)
 
-        async for message in self.sync_work_repo(work_repo):
-            yield message
+        await status.write_comment(f"Opening {self.work_repo_id} ...")
+        work_repo = await self.get_local_repo(self.work_repo_id)
+        work_repo.status = status
+
+        await status.write_comment(f"Synchronizing with {self.home_repo_id}")
+        await self.sync_work_repo(work_repo)
 
         # add target repo as remote to local work repo
         target_repo_id = pr_id.repo_id()
-        target_repo_slug = target_repo_id.slug()
-        yield (f"{MAGIC_RUNES} git remote add {target_repo_slug} {target_repo_id.url()}\n"
-               f"{MAGIC_RUNES} git fetch {target_repo_slug}")
         await work_repo.track_and_fetch_remote(target_repo_id)
 
         # create new branch in local work repo
         branch_name = pr_id.slug()
-        yield f"{MAGIC_RUNES} git checkout -b {branch_name}"
         await work_repo.checkout(branch_name)
 
-        yield f"Downloading and applying patch file for {pr_id} ..."
         target_pull_request = self.get_pull_request(pr_id)
+        naive_resolution_applied = False
         try:
             if target_pull_request.is_merged():
-                naive_resolution_applied = await work_repo.cherry_pick_conflict_resolving(target_pull_request.merge_commit_sha)
+                await work_repo.cherry_pick(target_pull_request.merge_commit_sha)
             else:
                 naive_resolution_applied = await work_repo.apply_patch_from_url_conflict_resolving(target_pull_request.patch_url)
-        except GitCommandException as e:
-            yield f"Encountered unresolvable merge conflict: {e.stdout}"
-            yield f"\nFailed!"
+        except MergeConflictsException as e:
+            for conflict in e.conflicts:
+                await status.write_line(f"CONFLICT: {conflict.path}\n{conflict.diff}")
+            # yield f"Encountered unresolvable merge conflict: {e.stdout}"
+            # yield f"\nFailed!"
             # work_repo.abort_patch()
+            return
+        except GitCommandException as e:
+            # work_repo.abort_patch()
+            await status.write_error(e.stdout)
+            await interaction.respond(f"{interaction.user.mention} Failed!")
             return
 
         if naive_resolution_applied:
-            yield f"WARNING: Some merge conflicts were solved with naive conflict resolution!"
+            await status.write_comment("WARNING: Some merge conflicts were solved with naive conflict resolution!")
 
         await work_repo.push("origin", branch_name)
 
@@ -118,7 +119,7 @@ class Morticia:
             draft=naive_resolution_applied
         )
 
-        yield f"Complete: {new_pr.html_url}"
+        await interaction.respond(f"Complete: {new_pr.html_url}")
 
     def index_repo(self, repo_id: RepoId):
         repo = self.get_github_repo(repo_id)
