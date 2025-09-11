@@ -52,6 +52,7 @@ class Morticia:
         yield f"-> Pulling {self.work_repo_id}:{work_repo.default_branch} ..."
         await work_repo.abort_merge()  # clear previous bad state
         await work_repo.abort_patch()
+        await work_repo.abort_cherry_pick()
         await work_repo.sync_branch_with_remote("origin", work_repo.default_branch)
 
         yield f"-> Fetching {self.home_repo_id} ..."
@@ -85,10 +86,14 @@ class Morticia:
         yield f"Downloading and applying patch file for {pr_id} ..."
         target_pull_request = self.get_pull_request(pr_id)
         try:
-            naive_resolution_applied = await work_repo.apply_patch_from_url_conflict_resolving(target_pull_request.patch_url)
+            if target_pull_request.is_merged():
+                naive_resolution_applied = await work_repo.cherry_pick_conflict_resolving(target_pull_request.merge_commit_sha)
+            else:
+                naive_resolution_applied = await work_repo.apply_patch_from_url_conflict_resolving(target_pull_request.patch_url)
         except GitCommandException as e:
             yield f"Encountered unresolvable merge conflict: {e.stdout}"
-            work_repo.abort_patch()
+            yield f"\nFailed!"
+            # work_repo.abort_patch()
             return
 
         if naive_resolution_applied:

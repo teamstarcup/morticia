@@ -92,6 +92,23 @@ class LocalRepo:
         self.repo_id = repo_id
         self.default_branch = default_branch
 
+    async def naive_conflict_resolution(self, e: GitCommandException, continue_command: str):
+        naive_resolution_applied = False
+        while "deleted in HEAD and modified in" in e.stdout:
+            # let's get lucky
+            naive_resolution_applied = True
+            await self.git("add --all")
+            try:
+                await self.git(continue_command)
+                break
+            except GitCommandException as e2:
+                e = e2
+
+        if "deleted in HEAD and modified in" not in e.stdout:
+            raise e
+
+        return naive_resolution_applied
+
     async def subprocess(self, cmd: str, working_directory: Optional[Union[str, bytes, os.PathLike]] = None):
         proc = await asyncio.create_subprocess_shell(
             cmd,
@@ -114,6 +131,13 @@ class LocalRepo:
         except CommandException as e:
             raise GitCommandException(e)
         return stdout, return_code
+
+    async def abort_cherry_pick(self):
+        try:
+            await self.git("cherry-pick --abort")
+        except GitCommandException as e:
+            if "no cherry-pick or revert in progress" not in e.stderr:
+                raise e
 
     async def abort_merge(self):
         try:
@@ -144,18 +168,7 @@ class LocalRepo:
         try:
             await self.apply_patch(patch, f"--3way {extra_options}")
         except GitCommandException as e:
-            while "deleted in HEAD and modified in" in e.stdout:
-                # let's get lucky
-                naive_resolution_applied = True
-                await self.git("add --all")
-                try:
-                    await self.git("am --continue")
-                    break
-                except GitCommandException as e2:
-                    e = e2
-
-            if "deleted in HEAD and modified in" not in e.stdout:
-                raise e
+            naive_resolution_applied = await self.naive_conflict_resolution(e, "am --continue")
         return naive_resolution_applied
 
     async def apply_patch_from_url_conflict_resolving(self, patch_url: str, extra_options: str = ""):
@@ -178,6 +191,17 @@ class LocalRepo:
             if "already exists" not in e.stderr:
                 raise e
             await self.git(f"checkout {branch}")
+
+    async def cherry_pick(self, commit_sha: str):
+        await self.git(f"cherry-pick {commit_sha}")
+
+    async def cherry_pick_conflict_resolving(self, commit_sha: str):
+        naive_resolution_applied = False
+        try:
+            await self.cherry_pick(commit_sha)
+        except GitCommandException as e:
+            naive_resolution_applied = await self.naive_conflict_resolution(e, "cherry-pick --continue")
+        return naive_resolution_applied
 
     async def get_remote_url(self, remote: str) -> str:
         stdout, _ = await self.git(f"remote get-url {remote}")
