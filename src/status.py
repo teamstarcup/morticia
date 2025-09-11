@@ -1,10 +1,24 @@
+import os
+from enum import Enum
+
 import discord
 
 MAX_MESSAGE_LENGTH = 2000
 FORMATTING_CHARS_LENGTH = 7
 SPINNER_STATES = 4
 
-MAGIC_RUNES = "[0;2m[0;36m$[0m"
+MAGIC_RUNES_CMD = "[0;2m[0;36m$[0m"
+MAGIC_RUNES_INFO_START = "[0;2m[0;30m"
+MAGIC_RUNES_INFO_STOP = "[0m"
+MAGIC_RUNES_ERROR = "[[2;31m![0m]"
+
+
+class Format(Enum):
+    STANDARD = 0
+    COMMAND = 1
+    COMMENT = 2
+    ERROR = 3
+
 
 class StatusMessage:
     ctx: discord.ApplicationContext
@@ -17,6 +31,7 @@ class StatusMessage:
         self.buffered_text = ""
 
     async def write(self, message: str) -> None:
+        message = message.replace(os.environ.get("GITHUB_TOKEN"), "<REDACTED>")
         remaining_length = MAX_MESSAGE_LENGTH - FORMATTING_CHARS_LENGTH - len(self.buffered_text)
         if remaining_length - len(message) <= 0:
             self.next_message = True
@@ -24,9 +39,26 @@ class StatusMessage:
 
         self.buffered_text += message
 
-    async def write_line(self, message: str) -> None:
+    async def write_line(self, message: str, format: Format = Format.STANDARD):
+        match format:
+            case Format.COMMAND:
+                message = f"{MAGIC_RUNES_CMD} {message}"
+            case Format.COMMENT:
+                message = f"{MAGIC_RUNES_INFO_START}// {message}{MAGIC_RUNES_INFO_STOP}"
+            case Format.ERROR:
+                message = f"{MAGIC_RUNES_ERROR} {message}"
         message += "\n"
         await self.write(message)
+        await self.flush()
+
+    async def write_command(self, message: str):
+        await self.write_line(message, Format.COMMAND)
+
+    async def write_comment(self, message: str):
+        await self.write_line(message, Format.COMMENT)
+
+    async def write_error(self, message: str):
+        await self.write_line(message, Format.ERROR)
 
     async def rewrite_line(self, message: str) -> None:
         self.buffered_text = self.buffered_text.rsplit("\n", 2)[0] + "\n"
