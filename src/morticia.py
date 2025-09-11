@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange
 from .git import LocalRepo, RepoId, PullRequestId, GitCommandException
 from .status import MAGIC_RUNES
+from .utils import obscure_references, qualify_implicit_issues
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +94,26 @@ class Morticia:
         if naive_resolution_applied:
             yield f"WARNING: Some merge conflicts were solved with naive conflict resolution!"
 
-        yield f"Complete!"
+        await work_repo.push("origin", branch_name)
+
+        body = f"Port of {pr_id}"
+        body += "\n\n"
+        body += "## Quote\n"
+        body += target_pull_request.body
+
+        body = qualify_implicit_issues(body, target_repo_id)
+        body = obscure_references(body)
+
+        home_repo_github = self.get_github_repo(self.home_repo_id)
+        new_pr = home_repo_github.create_pull(
+            "main",
+            f"{self.github_username()}:{branch_name}",
+            body=body,
+            title=target_pull_request.title,
+            draft=naive_resolution_applied
+        )
+
+        yield f"Complete: {new_pr.html_url}"
 
     def index_repo(self, repo_id: RepoId):
         repo = self.get_github_repo(repo_id)
