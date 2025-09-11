@@ -77,7 +77,7 @@ def qualify_implicit_issues(message: str, repo_id: RepoId) -> str:
 
 
 EXPLICIT_ISSUE_PATTERN = re.compile(r"\s([\w\.-]+/[\w\.-]+#\d+)")
-ABSOLUTE_REFERENCE_PATTERN = re.compile(r"((?:https?://)?github.com/)[\w\.-]+/[\w\.-]+/(pull|issue|commit)/[a-f\d]+")
+ABSOLUTE_REFERENCE_PATTERN = re.compile(r"((?:https?://)?[^\.]?github.com/)[\w\.-]+/[\w\.-]+/(pull|issue|commit)/[a-f\d]+")
 DIRECT_BASE_URL = "https://github.com/"
 INDIRECT_BASE_URL = "https://redirect.github.com/"
 USERNAME_MENTION_PATTERN = re.compile(r"(@[A-Za-z0-9_\.-]+)")
@@ -89,9 +89,9 @@ def obscure_references(message: str) -> str:
     """
 
     # explicit issue refs: impstation/imp-station-14#123
-    for match in EXPLICIT_ISSUE_PATTERN.findall(message):
-        repo_id, issue_number = match.split("#")
-        message = message.replace(match, f"[{match}]({INDIRECT_BASE_URL}{repo_id}/pull/{issue_number})")
+    # for match in EXPLICIT_ISSUE_PATTERN.findall(message):
+    #     repo_id, issue_number = match.split("#")
+    #     message = message.replace(match, f"[{match}]({INDIRECT_BASE_URL}{repo_id}/pull/{issue_number})")
     message = EXPLICIT_ISSUE_PATTERN.sub(rf"`\1`", message)
 
     # absolute URLs: https://github.com/impstation/imp-station-14/pull/123
