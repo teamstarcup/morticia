@@ -3,7 +3,7 @@ from discord.ui import Item
 
 from src.morticia import Morticia
 from src.status import StatusMessage
-from ..git import PullRequestId, GitCommandException
+from ..git import PullRequestId, GitCommandException, MergeConflict
 
 
 class MyView(discord.ui.View):
@@ -13,8 +13,8 @@ class MyView(discord.ui.View):
         self.pull_request_url = pull_request_url
         self.pull_request_id = PullRequestId.from_url(pull_request_url)
 
-    @discord.ui.button(label="Autoport", style=discord.ButtonStyle.primary)
-    async def autoport(self, button: discord.Button, interaction: discord.Interaction):
+    @discord.ui.button(label="Port", style=discord.ButtonStyle.primary)
+    async def port(self, button: discord.Button, interaction: discord.Interaction):
         try:
             await self.morticia.start_port(self.pull_request_id, interaction)
         except GitCommandException as e:

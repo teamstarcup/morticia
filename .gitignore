@@ -6,3 +6,4 @@ repositories
 docker-compose.yml
 trace.txt
 tmp.patch
+*.ignore

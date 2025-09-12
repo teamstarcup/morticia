@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+from enum import Enum
 from typing import Optional, Union
 
 import requests
@@ -91,11 +92,20 @@ class LocalRepo:
     pass
 
 
+class ResolutionType(Enum):
+    UNSELECTED = -1
+    MANUAL = 0
+    OURS = 1
+    THEIRS = 2
+
+
 class MergeConflict:
-    repo: LocalRepo
     path: str
     content: str
     diff: str
+
+    proposed_content: str
+    resolution: ResolutionType
 
     def __init__(self, repo: LocalRepo, path: str, content: str, diff: str):
         self.repo = repo
@@ -103,19 +113,52 @@ class MergeConflict:
         self.content = content
         self.diff = diff
 
-    def resolved(self):
-        self.repo.stage_file(self.path)
+        self.proposed_content = self.content
+        self.resolution = ResolutionType.UNSELECTED
+
+    def file_path(self):
+        return f"{self.repo.path}/{self.path}"
+
+    def take_ours(self):
+        self.resolution = ResolutionType.OURS
+
+    def take_theirs(self):
+        self.resolution = ResolutionType.THEIRS
+
+    def take_manual(self):
+        self.resolution = ResolutionType.MANUAL
+
+    async def resolve(self):
+        match self.resolution:
+            case ResolutionType.MANUAL:
+                with open(self.file_path(), "w") as f:
+                    f.write(self.proposed_content)
+                await self.repo.stage_file(self.path)
+            case ResolutionType.OURS:
+                await self.repo.git(f"checkout --ours {self.path}")
+                await self.repo.stage_file(self.path)
+                pass
+            case ResolutionType.THEIRS:
+                await self.repo.git(f"checkout --theirs {self.path}")
+                await self.repo.stage_file(self.path)
+                pass
+            case ResolutionType.UNSELECTED:
+                raise Exception("This should not happen.")
 
 
 class MergeConflictsException(CommandException):
+    command: str
     conflicts: list[MergeConflict]
-    def __init__(self, exception: CommandException, conflicts: list[MergeConflict]):
+    def __init__(self, exception: CommandException, command: str, conflicts: list[MergeConflict]):
         super().__init__(exception.stdout, exception.stderr, exception.exit_code)
+        self.command = command
         self.conflicts = conflicts
 
 
 # noinspection PyRedeclaration
 class LocalRepo:
+    path: str
+    repo_id: RepoId
     default_branch: str
 
     status: Optional[StatusMessage]
@@ -145,7 +188,16 @@ class LocalRepo:
         return naive_resolution_applied
 
     async def diff(self, file_path: str):
-        stdout, _ = await self.subprocess(f"difft --display=inline --color=always {file_path}")
+        try:
+            stdout, _ = await self.subprocess(f"difft --display=inline --color=always {file_path}")
+        except CommandException as e:
+            if not "Difftastic requires two paths" in e.stderr:
+                raise e
+            # create empty file for single-file diffing
+            open(".empty.ignore", "a").close()
+            stdout, _ = await self.subprocess(f"difft --display=inline --color=always ../../.empty.ignore {file_path}")
+            os.remove(".empty.ignore")
+
         stdout = convert_discord_ansi(stdout)
         return stdout
 
@@ -204,9 +256,9 @@ class LocalRepo:
         try:
             await self.git(f"am {patch} --keep-non-patch {extra_options}")
         except GitCommandException as e:
-            if not "Merge conflict in" in e.stderr:
+            if not "CONFLICT" in e.stdout:
                 raise e
-            raise MergeConflictsException(e, conflicts=await self.conflicts())
+            raise MergeConflictsException(e, "am", conflicts=await self.conflicts())
 
     async def apply_patch_conflict_resolving(self, patch: str, extra_options: str = ""):
         """
@@ -248,9 +300,9 @@ class LocalRepo:
         try:
             await self.git(f"cherry-pick {commit_sha}")
         except GitCommandException as e:
-            if not "Merge conflict in" in e.stdout:
+            if not "CONFLICT" in e.stdout:
                 raise e
-            raise MergeConflictsException(e, conflicts=await self.conflicts())
+            raise MergeConflictsException(e, "cherry-pick", conflicts=await self.conflicts())
 
     async def cherry_pick_conflict_resolving(self, commit_sha: str):
         naive_resolution_applied = False
@@ -265,8 +317,10 @@ class LocalRepo:
         conflicts = []
         for line in stdout.splitlines():
             _, path = line.split("\t")
+            with open(f"{self.path}/{path}", "r") as f:
+                content = f.read()
             diff = await self.diff(path)
-            conflicts.append(MergeConflict(self, path, "", diff))
+            conflicts.append(MergeConflict(self, path, content, diff))
         return conflicts
 
     async def get_remote_url(self, remote: str) -> str:

@@ -1,4 +1,4 @@
-
+import asyncio
 import logging
 
 import discord
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange
 from .git import LocalRepo, RepoId, PullRequestId, GitCommandException, MergeConflictsException
 from .status import StatusMessage
+from .ui.pages import MergeConflictsPaginator
 from .utils import obscure_references, qualify_implicit_issues
 
 log = logging.getLogger(__name__)
@@ -80,46 +81,62 @@ class Morticia:
         target_pull_request = self.get_pull_request(pr_id)
         naive_resolution_applied = False
         try:
-            if target_pull_request.is_merged():
+            # cherry-picks for squashed & merged PRs, patches for everything else
+            target_repo_github = self.get_github_repo(target_repo_id)
+            target_commit = target_repo_github.get_commit(target_pull_request.merge_commit_sha).commit
+            if target_pull_request.is_merged() and len(target_commit.parents) == 1:
                 await work_repo.cherry_pick(target_pull_request.merge_commit_sha)
             else:
                 naive_resolution_applied = await work_repo.apply_patch_from_url_conflict_resolving(target_pull_request.patch_url)
         except MergeConflictsException as e:
+            future = asyncio.get_running_loop().create_future()
+            paginator = MergeConflictsPaginator(e.conflicts, future)
+            await paginator.respond(interaction)
+            await future
+
+            await paginator.disable(include_custom=True, page="All conflicts resolved!")
+            if future.cancelled():
+                return
+
+            await status.write_comment("Resolving conflicts...")
             for conflict in e.conflicts:
-                await status.write_line(f"CONFLICT: {conflict.path}\n{conflict.diff}")
-            # yield f"Encountered unresolvable merge conflict: {e.stdout}"
-            # yield f"\nFailed!"
+                await conflict.resolve()
+
+            await work_repo.git(f"{e.command} --continue")
+
             # work_repo.abort_patch()
-            return
+            # return
         except GitCommandException as e:
             # work_repo.abort_patch()
-            await status.write_error(e.stdout)
+            await status.write_error(f"stdout: {e.stdout}\n\nstderr: {e.stderr}")
             await interaction.respond(f"{interaction.user.mention} Failed!")
             return
 
         if naive_resolution_applied:
             await status.write_comment("WARNING: Some merge conflicts were solved with naive conflict resolution!")
 
-        await work_repo.push("origin", branch_name)
+        await status.write_comment("I would have submitted a pull request, but this was a dry run.")
 
-        body = f"Port of {pr_id}"
-        body += "\n\n"
-        body += "## Quote\n"
-        body += target_pull_request.body
-
-        body = qualify_implicit_issues(body, target_repo_id)
-        body = obscure_references(body)
-
-        home_repo_github = self.get_github_repo(self.home_repo_id)
-        new_pr = home_repo_github.create_pull(
-            "main",
-            f"{self.github_username()}:{branch_name}",
-            body=body,
-            title=target_pull_request.title,
-            draft=naive_resolution_applied
-        )
-
-        await interaction.respond(f"Complete: {new_pr.html_url}")
+        # await work_repo.push("origin", branch_name)
+        #
+        # body = f"Port of {pr_id}"
+        # body += "\n\n"
+        # body += "## Quote\n"
+        # body += target_pull_request.body
+        #
+        # body = qualify_implicit_issues(body, target_repo_id)
+        # body = obscure_references(body)
+        #
+        # home_repo_github = self.get_github_repo(self.home_repo_id)
+        # new_pr = home_repo_github.create_pull(
+        #     "main",
+        #     f"{self.github_username()}:{branch_name}",
+        #     body=body,
+        #     title=target_pull_request.title,
+        #     draft=naive_resolution_applied
+        # )
+        #
+        # await interaction.respond(f"Complete: {new_pr.html_url}")
 
     def index_repo(self, repo_id: RepoId):
         repo = self.get_github_repo(repo_id)
@@ -129,8 +146,8 @@ class Morticia:
         self.session.commit()
 
         highest_pull_request_id = repo.get_pulls(state="all", direction="desc").get_page(0)[0].number
-        for i in range(highest_pull_request_id, 1, -1):
-            # if self.session.execute(sqlalchemy.select(KnownPullRequest).where(KnownPullRequest.pull_request_id == i)).scalar():
+        for i in range(1639, 1, -1):
+            # if self.session.execute(sqlalchemy.select(KnownPullRequest).where(KnownPullRequest.pull_request_id == i and KnownPullRequest.repo_id == repo_id)).scalar():
             #     continue
             try:
                 pull_request = repo.get_pull(i)

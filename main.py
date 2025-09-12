@@ -7,6 +7,7 @@ import time
 
 import discord
 import dotenv
+from discord.ext import pages
 from discord.ext.commands import cooldown
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
