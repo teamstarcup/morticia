@@ -89,20 +89,25 @@ class Morticia:
             else:
                 naive_resolution_applied = await work_repo.apply_patch_from_url_conflict_resolving(target_pull_request.patch_url)
         except MergeConflictsException as e:
-            future = asyncio.get_running_loop().create_future()
-            paginator = MergeConflictsPaginator(e.conflicts, future)
-            await paginator.respond(interaction)
-            await future
+            while True:
+                future = asyncio.get_running_loop().create_future()
+                paginator = MergeConflictsPaginator(e.conflicts, future)
+                await paginator.respond(interaction)
+                await future
 
-            await paginator.disable(include_custom=True, page="All conflicts resolved!")
-            if future.cancelled():
-                return
+                await paginator.disable(include_custom=True, page="All conflicts resolved!")
+                if future.cancelled():
+                    return
 
-            await status.write_comment("Resolving conflicts...")
-            for conflict in e.conflicts:
-                await conflict.resolve()
+                await status.write_comment("Resolving conflicts...")
+                for conflict in e.conflicts:
+                    await conflict.resolve()
 
-            await work_repo.git(f"{e.command} --continue")
+                try:
+                    await work_repo.continue_merge(e.command)
+                    break
+                except MergeConflictsException as e2:
+                    e = e2
 
             # work_repo.abort_patch()
             # return

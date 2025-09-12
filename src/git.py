@@ -323,6 +323,14 @@ class LocalRepo:
             conflicts.append(MergeConflict(self, path, content, diff))
         return conflicts
 
+    async def continue_merge(self, command: str):
+        try:
+            await self.git(f"{command} --continue")
+        except GitCommandException as e:
+            if not "CONFLICT" in e.stdout:
+                raise e
+            raise MergeConflictsException(e, command, conflicts=await self.conflicts())
+
     async def get_remote_url(self, remote: str) -> str:
         stdout, _ = await self.git(f"remote get-url {remote}")
         return stdout.strip()
