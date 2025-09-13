@@ -143,6 +143,7 @@ class MergeConflictView(discord.ui.View):
         self.checked_button = button
         self.conflict.take_manual()
         await interaction.response.send_modal(ResolveConflictModal(self.conflict))
+        await self.update_buttons()
 
     @discord.ui.button(label="Ours")
     async def ours(self, button: discord.Button, interaction: discord.Interaction):
@@ -155,6 +156,20 @@ class MergeConflictView(discord.ui.View):
     async def theirs(self, button: discord.Button, interaction: discord.Interaction):
         self.checked_button = button
         self.conflict.take_theirs()
+        await interaction.response.defer()
+        await self.update_buttons()
+
+    # @discord.ui.button(label="New")
+    # async def theirs(self, button: discord.Button, interaction: discord.Interaction):
+    #     self.checked_button = button
+    #     self.conflict.take_theirs()
+    #     await interaction.response.defer()
+    #     await self.update_buttons()
+
+    @discord.ui.button(label="Fix it later")
+    async def fix_later(self, button: discord.Button, interaction: discord.Interaction):
+        self.checked_button = button
+        self.conflict.as_is()
         await interaction.response.defer()
         await self.update_buttons()
 

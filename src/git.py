@@ -97,6 +97,7 @@ class ResolutionType(Enum):
     MANUAL = 0
     OURS = 1
     THEIRS = 2
+    AS_IS = 3
 
 
 class MergeConflict:
@@ -128,22 +129,21 @@ class MergeConflict:
     def take_manual(self):
         self.resolution = ResolutionType.MANUAL
 
+    def as_is(self):
+        self.resolution = ResolutionType.AS_IS
+
     async def resolve(self):
         match self.resolution:
             case ResolutionType.MANUAL:
                 with open(self.file_path(), "w") as f:
                     f.write(self.proposed_content)
-                await self.repo.stage_file(self.path)
             case ResolutionType.OURS:
                 await self.repo.git(f"checkout --ours {self.path}")
-                await self.repo.stage_file(self.path)
-                pass
             case ResolutionType.THEIRS:
                 await self.repo.git(f"checkout --theirs {self.path}")
-                await self.repo.stage_file(self.path)
-                pass
             case ResolutionType.UNSELECTED:
                 raise Exception("This should not happen.")
+        await self.repo.stage_file(self.path)
 
 
 class MergeConflictsException(CommandException):
