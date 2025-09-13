@@ -190,7 +190,14 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
 )
 @complains
 async def port(ctx: discord.ApplicationContext, message: discord.Message):
-    modal = BeginPortModal(message, title="Begin Port")
+    matches: list[str] = get_pr_links_from_text(message.content)
+    if matches == 0:
+        await ctx.respond("Hey, I didn't find any pull request links there.")
+        return
+
+    pull_request_url = matches[0]
+    pull_request_id = PullRequestId.from_url(pull_request_url)
+    modal = BeginPortModal(morticia, message, pull_request_id)
     await ctx.send_modal(modal)
 
 

@@ -20,7 +20,7 @@ class MyView(discord.ui.View):
         button.disabled = True
         try:
             message = interaction.message
-            modal = BeginPortModal(self.morticia, message, self.pull_request_id, title=f"Begin Port: {self.pull_request_id}")
+            modal = BeginPortModal(self.morticia, message, self.pull_request_id)
             await interaction.response.send_modal(modal)
         except GitCommandException as e:
             await interaction.respond(f"{interaction.user.mention} Encountered a fatal error: \n{e.stdout}\n{e.stderr}")
