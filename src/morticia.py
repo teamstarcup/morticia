@@ -149,7 +149,7 @@ class Morticia:
         self.session.commit()
 
         highest_pull_request_id = repo.get_pulls(state="all", direction="desc").get_page(0)[0].number
-        for i in range(1639, 1, -1):
+        for i in range(highest_pull_request_id, 1, -1):
             # if self.session.execute(sqlalchemy.select(KnownPullRequest).where(KnownPullRequest.pull_request_id == i and KnownPullRequest.repo_id == repo_id)).scalar():
             #     continue
             try:
@@ -171,6 +171,9 @@ class Morticia:
 
                 known_file_change = KnownFileChange.as_unique(self.session, pull_request_id=pull_request.number, repo_id=str(repo_id), file_path=file.filename)
                 known_file_change.update(file)
+                # await asyncio.sleep(1)
+
+            await asyncio.sleep(1)
 
             self.session.commit()
             # break

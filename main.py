@@ -164,13 +164,13 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
 
         repo_id = RepoId.from_url(matches[0])
         pull_request_count = morticia.get_github_repo(repo_id).get_pulls("all").totalCount
-        estimated_seconds = pull_request_count * 2.5
+        estimated_seconds = pull_request_count * 4
         estimate = pretty_duration(estimated_seconds)
         await ctx.respond(f"Okay, I'll go index {repo_id}. This is probably going to take a lot longer than 15 minutes,"
                           f" so I'll ping you when I'm done!\n\nEstimated time: {estimate}")
 
         time_start = time.time()
-        morticia.index_repo(repo_id)
+        await morticia.index_repo(repo_id)
         time_stop = time.time()
         duration = int(time_stop - time_start)
         display_duration = pretty_duration(duration)
