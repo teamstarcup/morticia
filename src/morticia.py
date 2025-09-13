@@ -128,7 +128,7 @@ class Morticia:
         body += target_pull_request.body
 
         body = qualify_implicit_issues(body, target_repo_id)
-        body = obscure_references(body)
+        # body = obscure_references(body)
 
         home_repo_github = self.get_github_repo(self.home_repo_id)
         new_pr = home_repo_github.create_pull(
