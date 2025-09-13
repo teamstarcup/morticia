@@ -1,8 +1,10 @@
 import asyncio
 import logging
+from typing import Optional
 
 import discord
 import sqlalchemy
+from discord.abc import Messageable
 from github import Github, Auth, UnknownObjectException
 from sqlalchemy.orm import Session
 
@@ -60,8 +62,8 @@ class Morticia:
 
         await work_repo.push("origin", force=True)
 
-    async def start_port(self, pr_id: PullRequestId, interaction: discord.Interaction):
-        status = StatusMessage(interaction)
+    async def start_port(self, pr_id: PullRequestId, title: str, desc: Optional[str], interaction: discord.Interaction, target: Messageable):
+        status = StatusMessage(target)
 
         await status.write_comment(f"Opening {self.work_repo_id} ...")
         work_repo = await self.get_local_repo(self.work_repo_id)
@@ -92,7 +94,7 @@ class Morticia:
             while True:
                 future = asyncio.get_running_loop().create_future()
                 paginator = MergeConflictsPaginator(e.conflicts, future)
-                await paginator.respond(interaction)
+                await paginator.respond(interaction, target=target, ephemeral=True)
                 await future
 
                 await paginator.disable(include_custom=True, page="All conflicts resolved!")
@@ -108,42 +110,38 @@ class Morticia:
                     break
                 except MergeConflictsException as e2:
                     e = e2
-
-            # work_repo.abort_patch()
-            # return
         except GitCommandException as e:
-            # work_repo.abort_patch()
             await status.write_error(f"stdout: {e.stdout}\n\nstderr: {e.stderr}")
-            await interaction.respond(f"{interaction.user.mention} Failed!")
+            await target.send(f"{interaction.user.mention} Failed!", target=target)
             return
 
         if naive_resolution_applied:
             await status.write_comment("WARNING: Some merge conflicts were solved with naive conflict resolution!")
 
-        await status.write_comment("I would have submitted a pull request, but this was a dry run.")
+        # await status.write_comment("I would have submitted a pull request, but this was a dry run.")
 
-        # await work_repo.push("origin", branch_name)
-        #
-        # body = f"Port of {pr_id}"
-        # body += "\n\n"
-        # body += "## Quote\n"
-        # body += target_pull_request.body
-        #
-        # body = qualify_implicit_issues(body, target_repo_id)
-        # body = obscure_references(body)
-        #
-        # home_repo_github = self.get_github_repo(self.home_repo_id)
-        # new_pr = home_repo_github.create_pull(
-        #     "main",
-        #     f"{self.github_username()}:{branch_name}",
-        #     body=body,
-        #     title=target_pull_request.title,
-        #     draft=naive_resolution_applied
-        # )
-        #
-        # await interaction.respond(f"Complete: {new_pr.html_url}")
+        await work_repo.push("origin", branch_name)
 
-    def index_repo(self, repo_id: RepoId):
+        body = f"Port of {pr_id}"
+        body += "\n\n"
+        body += "## Quote\n"
+        body += target_pull_request.body
+
+        body = qualify_implicit_issues(body, target_repo_id)
+        body = obscure_references(body)
+
+        home_repo_github = self.get_github_repo(self.home_repo_id)
+        new_pr = home_repo_github.create_pull(
+            "main",
+            f"{self.github_username()}:{branch_name}",
+            body=desc or body,
+            title=title,
+            draft=naive_resolution_applied
+        )
+
+        await target.send(f"Complete: {new_pr.html_url}")
+
+    async def index_repo(self, repo_id: RepoId):
         repo = self.get_github_repo(repo_id)
 
         # make sure this was inserted because foreignkey depends on it

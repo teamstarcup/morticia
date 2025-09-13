@@ -2,9 +2,11 @@ import os
 from enum import Enum
 
 import discord
+from discord import Interaction
+from discord.abc import Messageable
 
 MAX_MESSAGE_LENGTH = 2000
-FORMATTING_CHARS_LENGTH = 7
+FORMATTING_CHARS_LENGTH = 12
 SPINNER_STATES = 4
 
 MAGIC_RUNES_CMD = "[0;2m[0;36m$[0m"
@@ -21,19 +23,24 @@ class Format(Enum):
 
 
 class StatusMessage:
-    ctx: discord.ApplicationContext
-    message: discord.Message
-    buffered_text: str
-    next_message: bool = True
-
-    def __init__(self, ctx: discord.ApplicationContext | discord.Interaction):
-        self.ctx = ctx
+    def __init__(self, target: Messageable | Interaction):
+        self.target = target
         self.buffered_text = ""
+        self.next_message = True
+        self.message = None
 
     async def write(self, message: str) -> None:
         message = message.replace(os.environ.get("GITHUB_TOKEN"), "<REDACTED>")
         remaining_length = MAX_MESSAGE_LENGTH - FORMATTING_CHARS_LENGTH - len(self.buffered_text)
         if remaining_length - len(message) <= 0:
+            self.next_message = True
+            self.buffered_text = ""
+
+        while len(message) + FORMATTING_CHARS_LENGTH > MAX_MESSAGE_LENGTH:
+            message_slice = message[:MAX_MESSAGE_LENGTH - FORMATTING_CHARS_LENGTH]
+            message = message[MAX_MESSAGE_LENGTH - FORMATTING_CHARS_LENGTH:]
+            self.buffered_text = message_slice
+            await self.flush()
             self.next_message = True
             self.buffered_text = ""
 
@@ -67,7 +74,10 @@ class StatusMessage:
     async def flush(self) -> None:
         content = f"```ansi\n{self.buffered_text}```"
         if self.next_message:
-            self.message = await self.ctx.respond(content)
+            if isinstance(self.target, Interaction):
+                self.message = await self.target.respond(content)
+            else:
+                self.message = await self.target.send(content)
             self.next_message = False
         else:
             await self.message.edit(content=content)

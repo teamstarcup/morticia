@@ -3,7 +3,8 @@ from discord.ui import Item
 
 from src.morticia import Morticia
 from src.status import StatusMessage
-from ..git import PullRequestId, GitCommandException, MergeConflict
+from .modals import BeginPortModal
+from ..git import PullRequestId, GitCommandException
 
 
 class MyView(discord.ui.View):
@@ -15,8 +16,12 @@ class MyView(discord.ui.View):
 
     @discord.ui.button(label="Port", style=discord.ButtonStyle.primary)
     async def port(self, button: discord.Button, interaction: discord.Interaction):
+        button.emoji = "✅"
+        button.disabled = True
         try:
-            await self.morticia.start_port(self.pull_request_id, interaction)
+            message = interaction.message
+            modal = BeginPortModal(self.morticia, message, self.pull_request_id, title=f"Begin Port: {self.pull_request_id}")
+            await interaction.response.send_modal(modal)
         except GitCommandException as e:
             await interaction.respond(f"{interaction.user.mention} Encountered a fatal error: \n{e.stdout}\n{e.stderr}")
 
