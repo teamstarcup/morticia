@@ -176,7 +176,7 @@ class KnownFileChange(Base, UniqueMixin):
 
     previous_file_path: Mapped[Optional[str]]
     patch: Mapped[Optional[str]]
-    sha: Mapped[str]
+    sha: Mapped[Optional[str]]
 
     pull_request: Mapped[KnownPullRequest] = relationship()
 
