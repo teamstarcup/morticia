@@ -185,12 +185,12 @@ class MergeConflictPage(discord.ext.pages.Page):
         self.conflict = conflict
         self.ignore_callback = False
 
-        diff = conflict.diff or "Binary file"
+        diff = conflict.diff or f"Binary file"
 
         # truncate lengthy diffs and upload them as attachments
         files = []
         if len(diff) > MAX_EMBED_LENGTH:
-            diff = f"{diff[:4000]}\n\x1B]0m...\nTruncated diff"
+            diff = f"{diff[:4000]}\n\x1B[0m...\nTruncated diff"
             with open("diff.ignore", "w") as f:
                 f.write(conflict.diff)
             file_name = f"{os.path.basename(conflict.path)}.diff.txt"
@@ -202,7 +202,7 @@ class MergeConflictPage(discord.ext.pages.Page):
 
         desc = f"```ansi\n{diff}\n```"
         self.view = MergeConflictView(conflict, ctx)
-        super().__init__(embeds=[discord.Embed(description=desc)], custom_view=self.view, files=files, **kwargs)
+        super().__init__(embeds=[discord.Embed(title=f"{conflict.path}", description=desc)], custom_view=self.view, files=files, **kwargs)
 
     async def callback(self, interaction: discord.Interaction | None = None):
         # Called when this page is displayed
