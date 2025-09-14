@@ -102,17 +102,19 @@ class ResolutionType(Enum):
 
 class MergeConflict:
     path: str
-    content: str
-    diff: str
+    content: Optional[str]
+    diff: Optional[str]
+    is_binary: bool
 
     proposed_content: str
     resolution: ResolutionType
 
-    def __init__(self, repo: LocalRepo, path: str, content: str, diff: str):
+    def __init__(self, repo: LocalRepo, path: str, content: Optional[str], diff: Optional[str], is_binary: bool = False):
         self.repo = repo
         self.path = path
         self.content = content
         self.diff = diff
+        self.is_binary = is_binary
 
         self.proposed_content = self.content
         self.resolution = ResolutionType.UNSELECTED
@@ -315,12 +317,18 @@ class LocalRepo:
     async def conflicts(self) -> list[MergeConflict]:
         stdout, exit_code = await self.git("diff --name-status --diff-filter=U")
         conflicts = []
+
         for line in stdout.splitlines():
             _, path = line.split("\t")
-            with open(f"{self.path}/{path}", "r") as f:
-                content = f.read()
-            diff = await self.diff(path)
-            conflicts.append(MergeConflict(self, path, content, diff))
+            diff = None
+            is_binary = False
+            try:
+                with open(f"{self.path}/{path}", "r", encoding="utf-8") as f:
+                    content = f.read()
+                diff = await self.diff(path)
+            except UnicodeDecodeError:
+                is_binary = True
+            conflicts.append(MergeConflict(self, path, content, diff, is_binary=is_binary))
         return conflicts
 
     async def continue_merge(self, command: str):

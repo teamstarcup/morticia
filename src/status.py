@@ -75,7 +75,7 @@ class StatusMessage:
         content = f"```ansi\n{self.buffered_text}```"
         if self.next_message:
             if isinstance(self.target, Interaction):
-                self.message = await self.target.respond(content)
+                self.message = await self.target.channel.send(content)
             else:
                 self.message = await self.target.send(content)
             self.next_message = False

@@ -185,7 +185,7 @@ class MergeConflictPage(discord.ext.pages.Page):
         self.conflict = conflict
         self.ignore_callback = False
 
-        diff = conflict.diff
+        diff = conflict.diff or "Binary file"
 
         # truncate lengthy diffs and upload them as attachments
         files = []
@@ -215,7 +215,7 @@ class MergeConflictsPaginator(discord.ext.pages.Paginator):
     def __init__(self, conflicts: list[MergeConflict], future: Future, **kwargs):
         conflicts_ctx = MergeConflictsContext(conflicts, future, self._refresh)
         pages = [MergeConflictPage(conflict, conflicts_ctx) for conflict in conflicts]
-        super().__init__(pages=pages, default_button_row=1, timeout=900, trigger_on_display=True, **kwargs)
+        super().__init__(pages=pages, default_button_row=1, timeout=900 - 1, trigger_on_display=True, **kwargs)
 
     async def _refresh(self):
         await self.goto_page(self.current_page)
