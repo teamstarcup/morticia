@@ -145,13 +145,22 @@ class MergeConflict:
             case ResolutionType.MANUAL:
                 with open(self.file_path(), "w") as f:
                     f.write(self.proposed_content)
+                await self.repo.stage_file(self.path)
             case ResolutionType.OURS:
-                await self.repo.git(f"checkout --ours {self.path}")
+                try:
+                    await self.repo.git(f"checkout --ours {self.path}")
+                    await self.repo.stage_file(self.path)
+                except GitCommandException as e:
+                    if not "does not have our version" in e.stderr:
+                        raise e
+                    await self.repo.git(f"rm {self.path}")
             case ResolutionType.THEIRS:
                 await self.repo.git(f"checkout --theirs {self.path}")
+                await self.repo.stage_file(self.path)
+            case ResolutionType.AS_IS:
+                await self.repo.stage_file(self.path)
             case ResolutionType.UNSELECTED:
                 raise Exception("This should not happen.")
-        await self.repo.stage_file(self.path)
 
 
 class MergeConflictsException(CommandException):
