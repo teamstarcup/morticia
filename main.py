@@ -4,6 +4,7 @@ import random
 import re
 import sys
 import time
+from typing import Optional
 
 import discord
 import dotenv
@@ -13,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from src.git import PullRequestId, RepoId
+from src.model import KnownPullRequest
 from src.morticia import Morticia
 from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration, complains, complain
 from src.ui.views import MyView
@@ -200,6 +202,44 @@ async def port(ctx: discord.ApplicationContext, message: discord.Message):
     modal = BeginPortModal(morticia, message, pull_request_id)
     await ctx.send_modal(modal)
 
+
+@bot.slash_command(
+    name="search",
+    description="Search for pull requests that change a file.",
+    default_member_permissions=discord.Permissions(
+        discord.Permissions.ban_members.flag
+    ),
+    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+)
+async def search(ctx: discord.ApplicationContext, path: str, repo_id: Optional[str]):
+    repo_id = repo_id is not None and RepoId.from_string(repo_id) or None
+    known_pull_requests = morticia.search_for_file_changes(path, repo_id)
+    # known_pull_requests = morticia.get_upstream_merge_prs(repo_id)
+
+    def sort_by_oldest(element: KnownPullRequest):
+        return element.merged_at
+    known_pull_requests.sort(key=sort_by_oldest)
+
+    text = ""
+    for pull_request in known_pull_requests:
+        # text += f"- [{pull_request.pull_request_id} - {pull_request.title}]({pull_request.html_url})" + "\n"
+        text += f"- {pull_request.pull_request_id} - {pull_request.title}" + "\n"
+
+    if len(text) > 6000:
+        await ctx.send("Truncating message to 6000 characters")
+        text = text[:6000]
+
+    embeds = []
+    PAGE_SIZE = 4096
+    total_pages = max(int(len(text) / PAGE_SIZE), 1)
+    for i in range(min(total_pages, 10)):
+        page = text[PAGE_SIZE*i:PAGE_SIZE*(i+1)]
+        embeds.append(discord.Embed(
+            title=f"[{i + 1}/{total_pages}] Changes to {path}",
+            description=page,
+        ))
+
+    await ctx.respond(embeds=embeds)
 
 with Session(engine) as session:
     morticia = Morticia(token, session)

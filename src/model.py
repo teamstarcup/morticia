@@ -151,6 +151,10 @@ class KnownPullRequest(Base, UniqueMixin):
         if pull_request.merged_at:
             self.merged_at = pull_request.merged_at
 
+    @property
+    def html_url(self):
+        return f"https://github.com/{self.repo_id}/pull/{self.pull_request_id}"
+
     @classmethod
     def unique_hash(cls, pull_request_id, repo_id):
         return f"{repo_id}#{pull_request_id}"

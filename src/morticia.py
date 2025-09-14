@@ -178,18 +178,52 @@ class Morticia:
             self.session.commit()
             # break
 
-    def get_upstream_merge_prs(self, repo_id: RepoId):
+    def get_upstream_merge_prs(self, repo_id: Optional[RepoId] = None):
         """
         Returns a list of KnownPullRequests, which are not necessarily merged.
         :param repo_id:
         :return:
         """
-        statement = (sqlalchemy.select(KnownFileChange, KnownPullRequest)
-                     .where(KnownFileChange.repo_id == str(repo_id))
-                     .where(KnownFileChange.file_path == "Resources/Changelog/Changelog.yml")
-                     .join(KnownPullRequest, onclause=KnownFileChange.pull_request))
+        statement = sqlalchemy.select(KnownFileChange, KnownPullRequest)
+        statement = statement.join(KnownPullRequest, KnownFileChange.pull_request)
+        statement = statement.where(KnownFileChange.file_path == "Resources/Changelog/Changelog.yml")
+        if repo_id is not None:
+            statement = statement.filter(KnownFileChange.repo_id == str(repo_id))
+            statement = statement.filter(KnownPullRequest.repo_id == str(repo_id))
+        print(statement)
         known_file_changes = self.session.execute(statement).scalars().all()
         return list(map(lambda change: change.pull_request, known_file_changes))
+
+    def search_for_file_changes(self, path: str, repo_id: Optional[RepoId] = None, merged_only: bool = True, ignore_upstream_merges: bool = True):
+        """
+        Returns a list of KnownPullRequests that modify the given file path.
+        :param path: path to the file to search for changes
+        :param repo_id: the repository, if any, to exclusively search for changes
+        :param merged_only: ignore unmerged pull requests
+        :param ignore_upstream_merges: ignore pull requests that modify ``Resources/Changelog/Changelog.yml``
+        :return:
+        """
+        statement = sqlalchemy.select(KnownFileChange, KnownPullRequest)
+        statement = statement.filter(KnownFileChange.file_path == path)
+        if repo_id is not None:
+            statement = statement.filter(KnownFileChange.repo_id == str(repo_id), KnownPullRequest.repo_id == str(repo_id))
+        if merged_only:
+            statement = statement.filter(KnownPullRequest.merged)
+        statement = statement.join(KnownPullRequest, KnownFileChange.pull_request)
+        print(statement)
+        known_file_changes = self.session.execute(statement).scalars().all()
+        pull_requests = list(map(lambda change: change.pull_request, known_file_changes))
+
+        if ignore_upstream_merges:
+            upstream_merges = self.get_upstream_merge_prs(repo_id)
+            for upstream_merge in upstream_merges:
+                for pull_request in pull_requests:
+                    if pull_request.pull_request_id == upstream_merge.pull_request_id:
+                        pull_requests.remove(pull_request)
+                        break
+
+        return pull_requests
+
 
     HIGH_FREQUENCY_FILES = {
         "Resources/Prototypes/Entities/Structures/Machines/lathe.yml",

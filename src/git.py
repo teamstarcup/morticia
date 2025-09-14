@@ -41,6 +41,12 @@ class RepoId:
         repo_id.repo_name = repo_id.repo_name.lower()
         return repo_id
 
+    @classmethod
+    def from_string(cls, text: str):
+        repo_id = RepoId()
+        repo_id.org_name, repo_id.repo_name, *_ = text.lower().split("/")
+        return repo_id
+
 
 class PullRequestId:
     org_name: str
