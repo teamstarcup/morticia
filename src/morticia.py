@@ -85,11 +85,19 @@ class Morticia:
         try:
             # cherry-picks for squashed & merged PRs, patches for everything else
             target_repo_github = self.get_github_repo(target_repo_id)
-            target_commit = target_repo_github.get_commit(target_pull_request.merge_commit_sha).commit
-            if target_pull_request.is_merged() and len(target_commit.parents) == 1:
-                await work_repo.cherry_pick(target_pull_request.merge_commit_sha)
+
+            use_patch = False
+            if not target_pull_request.is_merged():
+                use_patch = True
             else:
-                naive_resolution_applied = await work_repo.apply_patch_from_url_conflict_resolving(target_pull_request.patch_url)
+                target_commit = target_repo_github.get_commit(target_pull_request.merge_commit_sha).commit
+                use_patch = len(target_commit.parents) > 1
+
+            if use_patch:
+                naive_resolution_applied = await work_repo.apply_patch_from_url_conflict_resolving(
+                    target_pull_request.patch_url)
+            else:
+                await work_repo.cherry_pick(target_pull_request.merge_commit_sha)
         except MergeConflictsException as e:
             while True:
                 future = asyncio.get_running_loop().create_future()
