@@ -1,13 +1,25 @@
+import datetime
 import logging
 import os
+import random
 import re
 import sys
 import time
+from typing import Optional
 
 import discord
 import dotenv
+from discord.ext import pages
+from discord.ext.commands import cooldown
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
-from starcatcher import Starcatcher, MergeConflictException
+from src.git import PullRequestId, RepoId
+from src.model import KnownPullRequest
+from src.morticia import Morticia
+from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration, complains, complain
+from src.ui.views import MyView
+from src.ui.modals import BeginPortModal
 
 dotenv.load_dotenv(".env")
 
@@ -21,31 +33,24 @@ log = logging.getLogger(__name__)
 token = os.environ.get("GITHUB_TOKEN")
 username = os.environ.get("GITHUB_BOT_USERNAME")
 email = os.environ.get("GITHUB_BOT_EMAIL")
-starcatcher = Starcatcher(token, "teamstarcup/starcup", username, email)
 
-intents = discord.Intents.default()
-bot = discord.Bot()
-
-
-PULL_REQUEST_LINK_PATTERN = re.compile(
-    r"(https://github.com/[\w\-_]+/[\w\-_]+/pull/\d+)"
-)
+db_host = os.environ.get("POSTGRES_HOST")
+db_port = os.environ.get("POSTGRES_PORT")
+db_user = os.environ.get("POSTGRES_USER")
+db_pass = os.environ.get("POSTGRES_PASSWORD")
+db_name = os.environ.get("POSTGRES_DB")
+engine = create_engine(f'postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}')
 
 
-def pretty_duration(seconds: int) -> str:
-    minutes, seconds = divmod(seconds, 60)
-    minutes = int(minutes)
-    seconds = int(seconds)
-    pretty_time = ""
-    if minutes > 0:
-        minutes_text = minutes > 1 and "minutes" or "minute"
-        pretty_time += f"{minutes:.0f} {minutes_text}"
-    if seconds > 0:
-        if minutes > 0:
-            pretty_time += " and "
-        seconds_text = int(seconds) > 1 and "seconds" or "second"
-        pretty_time += f"{seconds:.0f} {seconds_text}"
-    return pretty_time
+class MorticiaBot(discord.Bot):
+    session: Session
+
+    def __init__(self, *args, **options):
+        super().__init__(*args, **options)
+
+
+intents = discord.Intents.all()
+bot = MorticiaBot()
 
 
 @bot.event
@@ -53,53 +58,53 @@ async def on_ready():
     log.info(f"We have logged in as {bot.user}")
 
 
+# noinspection PyTypeChecker
+@bot.slash_command(
+    name="pet",
+    description="You reach out to pet Morticia...",
+    #guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+)
+@cooldown(1, 10, discord.ext.commands.BucketType.user)
+async def pet(ctx: discord.ApplicationContext):
+    success = random.random() >= 0.7
+    if not success:
+        await ctx.respond(f"-# You reach out to pet Morticia, but she is busy raccooning around.")
+    else:
+        await ctx.respond(f"-# You pet Morticia on her trash eating little head. 💕 🦝")
+
+
+@pet.error
+@complains
+async def on_command_error(ctx, error):
+    if isinstance(error, discord.ext.commands.CommandOnCooldown):
+        await ctx.respond(f"This command is on cooldown, you can use it in {round(error.retry_after, 2)} seconds", ephemeral=True)
+    else:
+        raise error
+
+
 @bot.message_command(
-    description="Begin the process of automatically porting the given pull request.",
+    name="explore",
+    description="Open a dialogue of actions for a given PR.",
     default_member_permissions=discord.Permissions(
         discord.Permissions.ban_members.flag
     ),
     guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
 )
-async def port(ctx: discord.ApplicationContext, message: discord.Message):
-    matches: list[str] = re.findall(PULL_REQUEST_LINK_PATTERN, message.content)
+@complains
+async def explore(ctx: discord.ApplicationContext, message: discord.Message):
+    matches: list[str] = get_pr_links_from_text(message.content)
     if matches == 0:
         await ctx.respond("Hey, I didn't find any pull request links there.")
         return
 
     pull_request_url = matches[0]
 
-    try:
-        await ctx.defer()
-        start_time = time.time()
-        pull_request = starcatcher.port(pull_request_url)
-        end_time = time.time()
-    except MergeConflictException as e:
-        await ctx.respond(f"Unable to port due to merge conflicts!")
-        return
+    pull_request_id = PullRequestId.from_url(pull_request_url)
+    pull_request = morticia.get_pull_request(pull_request_id)
 
-    pretty_time = pretty_duration(int(end_time - start_time))
-    await ctx.respond(f"Done in {pretty_time}! 🥰\n\n{pull_request.html_url}")
-    # await ctx.respond(f"Done in {pretty_time}! 🥰\n\nabc")
-
-
-@bot.message_command(
-    description="Fetch details about a given pull request",
-    default_member_permissions=discord.Permissions(
-        discord.Permissions.ban_members.flag
-    ),
-    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
-)
-async def check(ctx: discord.ApplicationContext, message: discord.Message):
-    matches: list[str] = re.findall(PULL_REQUEST_LINK_PATTERN, message.content)
-    if matches == 0:
-        await ctx.respond("Hey, I didn't find any pull request links there.")
-        return
-
-    pull_request_url = matches[0]
-    pull_request = starcatcher.get_pull_request(pull_request_url)
-
-    body_summary = re.sub(r"<!--.*?-->", "", pull_request.body)[:300]
-    if len(pull_request.body) > 300:
+    body = pull_request.body or ""
+    body_summary = re.sub(r"<!--.*?-->", "", body)[:300]
+    if len(body) > 300:
         body_summary += " ..."
     body_summary += os.linesep
     body_summary += f"```ansi\n[2;36m+{pull_request.additions}[0m [2;31m-{pull_request.deletions}[0m\n```"
@@ -135,20 +140,111 @@ async def check(ctx: discord.ApplicationContext, message: discord.Message):
         icon_url=pull_request.user.avatar_url,
         url=f"https://github.com/{pull_request.user.login}",
     )
-    await ctx.respond("", embed=embed)
+    await ctx.respond("", embed=embed, view=MyView(morticia, pull_request_url))
 
 
-@bot.slash_command()
-async def hello(ctx: discord.ApplicationContext):
-    await ctx.respond("Hello!")
+@explore.error
+async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
+    raise error  # Here we raise other errors to ensure they aren't ignored
 
 
-bot.run(os.environ.get("DISCORD_TOKEN"))
+@bot.slash_command(
+    name="index",
+    description="Indexes all pull requests in the given GitHub repository.",
+    default_member_permissions=discord.Permissions(
+        discord.Permissions.ban_members.flag
+    ),
+    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+    options = [],
+)
+async def index(ctx: discord.ApplicationContext, repo_url: str):
+    # noinspection PyBroadException
+    try:
+        matches = get_repo_links_from_text(repo_url)
+        if matches == 0:
+            await ctx.respond("Hey, I didn't find any GitHub repository links there.")
+            return
+
+        repo_id = RepoId.from_url(matches[0])
+        pull_request_count = morticia.get_github_repo(repo_id).get_pulls("all").totalCount
+        estimated_seconds = pull_request_count * 4
+        estimate = pretty_duration(estimated_seconds)
+        await ctx.respond(f"Okay, I'll go index {repo_id}. This is probably going to take a lot longer than 15 minutes,"
+                          f" so I'll ping you when I'm done!\n\nEstimated time: {estimate}")
+
+        time_start = time.time()
+        await morticia.index_repo(repo_id)
+        time_stop = time.time()
+        duration = int(time_stop - time_start)
+        display_duration = pretty_duration(duration)
+
+        await ctx.send(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
+    except Exception:
+        await complain(ctx)
 
 
-# starcatcher.port("https://github.com/impstation/imp-station-14/pull/2903") # failed on merge conflicts
-# starcatcher.port("https://github.com/impstation/imp-station-14/pull/2800")  # fruit, meat bowls
+@bot.message_command(
+    name="port",
+    description="Begin porting for this PR. You will be prompted for more details.",
+    default_member_permissions=discord.Permissions(
+        discord.Permissions.ban_members.flag
+    ),
+    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+)
+@complains
+async def port(ctx: discord.ApplicationContext, message: discord.Message):
+    matches: list[str] = get_pr_links_from_text(message.content)
+    if matches == 0:
+        await ctx.respond("Hey, I didn't find any pull request links there.")
+        return
 
-# starcatcher.port("https://github.com/DeltaV-Station/Delta-v/pull/859")  # prescription huds
+    pull_request_url = matches[0]
+    pull_request_id = PullRequestId.from_url(pull_request_url)
+    modal = BeginPortModal(morticia, message, pull_request_id)
+    await ctx.send_modal(modal)
 
-starcatcher.close()
+
+@bot.slash_command(
+    name="search",
+    description="Search for pull requests that change a file.",
+    default_member_permissions=discord.Permissions(
+        discord.Permissions.ban_members.flag
+    ),
+    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+)
+async def search(ctx: discord.ApplicationContext, path: str, repo_id: Optional[str]):
+    repo_id = repo_id is not None and RepoId.from_string(repo_id) or None
+    known_pull_requests = morticia.search_for_file_changes(path, repo_id)
+    # known_pull_requests = morticia.get_upstream_merge_prs(repo_id)
+
+    def sort_by_oldest(element: KnownPullRequest):
+        return element.merged_at or datetime.datetime.fromisocalendar(1970, 1, 1)
+    known_pull_requests.sort(key=sort_by_oldest)
+
+    text = ""
+    for pull_request in known_pull_requests:
+        # text += f"- [{pull_request.pull_request_id} - {pull_request.title}]({pull_request.html_url})" + "\n"
+        text += f"- {pull_request.pull_request_id} - {pull_request.title}" + "\n"
+
+    if len(text) > 6000:
+        await ctx.send("Truncating message to 6000 characters")
+        text = text[:6000]
+
+    embeds = []
+    PAGE_SIZE = 4096
+    total_pages = max(int(len(text) / PAGE_SIZE), 1)
+    for i in range(min(total_pages, 10)):
+        page = text[PAGE_SIZE*i:PAGE_SIZE*(i+1)]
+        embeds.append(discord.Embed(
+            title=f"[{i + 1}/{total_pages}] Changes to {path}",
+            description=page,
+        ))
+
+    await ctx.respond(embeds=embeds)
+
+with Session(engine) as session:
+    morticia = Morticia(token, session)
+    bot.session = session
+    bot.run(os.environ.get("DISCORD_TOKEN"))
+
+morticia.close()
