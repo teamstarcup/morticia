@@ -10,7 +10,8 @@ class BeginPortModal(discord.ui.Modal):
     Displayed to the user when they are beginning a port.
     """
     def __init__(self, morticia: Morticia, message: Message, pr_id: PullRequestId, *args, **kwargs) -> None:
-        super().__init__(title=f"Begin Port: {pr_id}", *args, **kwargs)
+        title = f"Port: {pr_id}"
+        super().__init__(title=title[:45], *args, **kwargs)
 
         self.morticia = morticia
         self.message = message
