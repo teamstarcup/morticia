@@ -1,3 +1,4 @@
+import datetime
 import logging
 import os
 import random
@@ -217,7 +218,7 @@ async def search(ctx: discord.ApplicationContext, path: str, repo_id: Optional[s
     # known_pull_requests = morticia.get_upstream_merge_prs(repo_id)
 
     def sort_by_oldest(element: KnownPullRequest):
-        return element.merged_at
+        return element.merged_at or datetime.datetime.fromisocalendar(1970, 1, 1)
     known_pull_requests.sort(key=sort_by_oldest)
 
     text = ""
