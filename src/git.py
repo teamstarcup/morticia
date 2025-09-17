@@ -143,7 +143,7 @@ class MergeConflict:
     async def resolve(self):
         match self.resolution:
             case ResolutionType.MANUAL:
-                with open(self.file_path(), "w") as f:
+                with open(self.file_path(), "w", encoding="utf-8") as f:
                     f.write(self.proposed_content)
                 await self.repo.stage_file(self.path)
             case ResolutionType.OURS:

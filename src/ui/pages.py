@@ -191,13 +191,13 @@ class MergeConflictPage(discord.ext.pages.Page):
         files = []
         if len(diff) > MAX_EMBED_LENGTH:
             diff = f"{diff[:4000]}\n\x1B[0m...\nTruncated diff"
-            with open("diff.ignore", "w") as f:
+            with open("diff.ignore", "w", encoding="utf-8") as f:
                 f.write(conflict.diff)
             file_name = f"{os.path.basename(conflict.path)}.diff.txt"
             files.append(discord.File("diff.ignore", file_name))
 
-        with open("content.ignore", "w") as f:
-            f.write(conflict.content)
+        with open("content.ignore", "wb") as f:
+            f.write(conflict.content.encode("utf-8"))
         files.append(discord.File("content.ignore", f"{os.path.basename(conflict.path)}"))
 
         desc = f"```ansi\n{diff}\n```"
