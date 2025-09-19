@@ -26,8 +26,9 @@ class RepoId:
     def __repr__(self):
         return f"{self.org_name}/{self.repo_name}".lower()
 
+    @property
     def url(self):
-        return f"{GITHUB_URL}{str(self)}/"
+        return f"{GITHUB_URL}{str(self)}"
 
     def slug(self):
         return slugify(str(self))
@@ -61,6 +62,10 @@ class PullRequestId:
         repo_id.org_name = self.org_name
         repo_id.repo_name = self.repo_name
         return repo_id
+
+    @property
+    def url(self):
+        return f"{self.repo_id().url}/pull/{self.number}"
 
     def slug(self):
         return f"{self.org_name}-{self.repo_name}-{self.number}"
@@ -379,7 +384,7 @@ class LocalRepo:
 
     async def track_and_fetch_remote(self, target_repo_id: RepoId):
         try:
-            await self.git(f"remote add {target_repo_id.slug()} {target_repo_id.url()}")
+            await self.git(f"remote add {target_repo_id.slug()} {target_repo_id.url}")
         except GitCommandException as e:
             if "already exists." not in e.stderr:
                 raise e
@@ -394,7 +399,7 @@ class LocalRepo:
         repo = LocalRepo(repo_dir, repo_id, default_branch)
 
         if not os.path.exists(repo_dir):
-            await repo.git(f"clone {repo_id.url()} {repo_dir}", working_directory=REPOSITORIES_DIR)
+            await repo.git(f"clone {repo_id.url} {repo_dir}", working_directory=REPOSITORIES_DIR)
 
         await repo.git(f"branch -u origin/{default_branch} {default_branch}")
 

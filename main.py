@@ -15,12 +15,12 @@ from discord.ext.commands import cooldown, MissingAnyRole
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from src.git import PullRequestId, RepoId
+from src.git import RepoId
 from src.model import KnownPullRequest
 from src.morticia import Morticia
-from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration
-from src.ui.views import MyView
 from src.ui.modals import BeginPortModal
+from src.ui.views import MyView
+from src.utils import parse_pull_request_urls, parse_repo_urls, pretty_duration
 
 dotenv.load_dotenv(".env")
 
@@ -121,14 +121,12 @@ async def pet(ctx: discord.ApplicationContext):
 )
 @discord.ext.commands.has_any_role(*USER_ROLE_IDS)
 async def explore(ctx: discord.ApplicationContext, message: discord.Message):
-    matches: list[str] = get_pr_links_from_text(message.content)
-    if len(matches) <= 0:
+    pull_request_ids = parse_pull_request_urls(message.content)
+    if len(pull_request_ids) <= 0:
         await ctx.respond("Hey, I didn't find any pull request links there.")
         return
 
-    pull_request_url = matches[0]
-
-    pull_request_id = PullRequestId.from_url(pull_request_url)
+    pull_request_id = pull_request_ids.pop()
     pull_request = morticia.get_pull_request(pull_request_id)
 
     body = pull_request.body or ""
@@ -147,7 +145,7 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
     embed = discord.Embed(
         title=pull_request.title,
         description=body_summary,
-        url=pull_request_url,
+        url=pull_request_id.url,
         color=color,
     )
     embed.add_field(
@@ -169,7 +167,7 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
         icon_url=pull_request.user.avatar_url,
         url=f"https://github.com/{pull_request.user.login}",
     )
-    await ctx.respond("", embed=embed, view=MyView(morticia, pull_request_url))
+    await ctx.respond("", embed=embed, view=MyView(morticia, pull_request_id.url))
 
 
 @bot.slash_command(
@@ -179,12 +177,12 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
 )
 @discord.ext.commands.has_any_role(*USER_ROLE_IDS)
 async def index(ctx: discord.ApplicationContext, repo_url: str):
-    matches = get_repo_links_from_text(repo_url)
-    if len(matches) <= 0:
+    repo_ids = parse_repo_urls(repo_url)
+    if len(repo_ids) <= 0:
         await ctx.respond("Hey, I didn't find any GitHub repository links there.")
         return
 
-    repo_id = RepoId.from_url(matches[0])
+    repo_id = repo_ids.pop()
     pull_request_count = morticia.get_github_repo(repo_id).get_pulls("all").totalCount
     estimated_seconds = pull_request_count * 4
     estimate = pretty_duration(estimated_seconds)
@@ -207,13 +205,12 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
 )
 @discord.ext.commands.has_any_role(*USER_ROLE_IDS)
 async def port(ctx: discord.ApplicationContext, message: discord.Message):
-    matches: list[str] = get_pr_links_from_text(message.content)
-    if len(matches) <= 0:
+    pull_request_ids = parse_pull_request_urls(message.content)
+    if len(pull_request_ids) <= 0:
         await ctx.respond("Hey, I didn't find any pull request links there.")
         return
 
-    pull_request_url = matches[0]
-    pull_request_id = PullRequestId.from_url(pull_request_url)
+    pull_request_id = pull_request_ids.pop()
     modal = BeginPortModal(morticia, message, pull_request_id)
     await ctx.send_modal(modal)
 

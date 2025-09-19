@@ -1,25 +1,6 @@
 import re
-import traceback
 
-import discord
-
-from src.git import RepoId
-
-REPO_LINK_PATTERN = re.compile(
-    r"(https://github.com/[\w\-_]+/[\w\-_]+/?)"
-)
-
-PULL_REQUEST_LINK_PATTERN = re.compile(
-    r"(https://github.com/[\w\-_]+/[\w\-_]+/pull/\d+)"
-)
-
-
-def get_pr_links_from_text(text: str) -> list[str]:
-    return re.findall(PULL_REQUEST_LINK_PATTERN, text)
-
-
-def get_repo_links_from_text(text: str) -> list[str]:
-    return re.findall(REPO_LINK_PATTERN, text)
+from src.git import RepoId, PullRequestId
 
 
 def pretty_duration(seconds: int) -> str:
@@ -36,6 +17,18 @@ def pretty_duration(seconds: int) -> str:
         seconds_text = int(seconds) > 1 and "seconds" or "second"
         pretty_time += f"{seconds:.0f} {seconds_text}"
     return pretty_time
+
+
+PULL_REQUEST_LINK_PATTERN = re.compile(r"(https://github.com/[\w\-_]+/[\w\-_]+/pull/\d+)")
+def parse_pull_request_urls(text: str) -> list[PullRequestId]:
+    urls = re.findall(PULL_REQUEST_LINK_PATTERN, text)
+    return [PullRequestId.from_url(url) for url in urls]
+
+
+REPO_LINK_PATTERN = re.compile(r"(https://github.com/[\w\-_]+/[\w\-_]+/?)")
+def parse_repo_urls(text: str) -> list[RepoId]:
+    urls = re.findall(REPO_LINK_PATTERN, text)
+    return [RepoId.from_url(url) for url in urls]
 
 
 IMPLICIT_ISSUE_PATTERN = re.compile(r"(?:^|[^\w`])(#\d+)(?:[^\w`]|$)")
