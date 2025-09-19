@@ -5,19 +5,20 @@ import random
 import re
 import sys
 import time
+import traceback
 from typing import Optional
 
 import discord
 import dotenv
 from discord.ext import pages
-from discord.ext.commands import cooldown
+from discord.ext.commands import cooldown, MissingAnyRole
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from src.git import PullRequestId, RepoId
 from src.model import KnownPullRequest
 from src.morticia import Morticia
-from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration, complains, complain
+from src.utils import get_pr_links_from_text, get_repo_links_from_text, pretty_duration
 from src.ui.views import MyView
 from src.ui.modals import BeginPortModal
 
@@ -42,20 +43,57 @@ db_name = os.environ.get("POSTGRES_DB")
 engine = create_engine(f'postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}')
 
 
+STACK_TRACE_FILE_PATH = ".trace.ignore"
+
+
 class MorticiaBot(discord.Bot):
     session: Session
 
     def __init__(self, *args, **options):
         super().__init__(*args, **options)
 
+    async def on_ready(self):
+        log.info(f"We have logged in as {self.user}")
+
+    async def handle_exception(self, exception: Exception, interaction: discord.Interaction):
+        self.session.rollback()
+
+        trace = "".join(traceback.format_exception(exception))
+        trace = trace.replace(token, "<REDACTED>")
+        traceback.print_exception(exception)
+
+        with open(STACK_TRACE_FILE_PATH, "w", encoding="utf-8") as f:
+            f.write(trace)
+
+        message = "Unhandled exception:"
+        if interaction.response.is_done():
+            message = f"{interaction.user.mention} {message}"
+        await interaction.respond(message, file=discord.File(fp=STACK_TRACE_FILE_PATH, filename="trace.txt"))
+
+        jump_url = f"https://discord.com/channels/{interaction.guild_id}/{interaction.channel.id}/{interaction.id}"
+        log.error(f"Printed exception to Discord: {jump_url}")
+
+    async def on_application_command_error(self, ctx: discord.ApplicationContext,
+                                           error: discord.ext.commands.errors.CommandError):
+        command = ctx.command
+        if command and command.has_error_handler():
+            return
+
+        cog = ctx.cog
+        if cog and cog.has_error_handler():
+            return
+
+        if isinstance(error, discord.ext.commands.CommandOnCooldown):
+            await ctx.respond(f"This command is on cooldown, you can use it in {round(error.retry_after, 2)} seconds",
+                              ephemeral=True)
+        elif isinstance(error, MissingAnyRole):
+            await ctx.respond(f"You are missing role permissions required to run this command.", ephemeral=True)
+        else:
+            await self.handle_exception(error, ctx.interaction)
+
 
 intents = discord.Intents.all()
 bot = MorticiaBot()
-
-
-@bot.event
-async def on_ready():
-    log.info(f"We have logged in as {bot.user}")
 
 
 # noinspection PyTypeChecker
@@ -73,15 +111,6 @@ async def pet(ctx: discord.ApplicationContext):
         await ctx.respond(f"-# You pet Morticia on her trash eating little head. 💕 🦝")
 
 
-@pet.error
-@complains
-async def on_command_error(ctx, error):
-    if isinstance(error, discord.ext.commands.CommandOnCooldown):
-        await ctx.respond(f"This command is on cooldown, you can use it in {round(error.retry_after, 2)} seconds", ephemeral=True)
-    else:
-        raise error
-
-
 @bot.message_command(
     name="explore",
     description="Open a dialogue of actions for a given PR.",
@@ -90,10 +119,9 @@ async def on_command_error(ctx, error):
     ),
     guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
 )
-@complains
 async def explore(ctx: discord.ApplicationContext, message: discord.Message):
     matches: list[str] = get_pr_links_from_text(message.content)
-    if matches == 0:
+    if len(matches) <= 0:
         await ctx.respond("Hey, I didn't find any pull request links there.")
         return
 
@@ -143,11 +171,6 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
     await ctx.respond("", embed=embed, view=MyView(morticia, pull_request_url))
 
 
-@explore.error
-async def on_application_command_error(ctx: discord.ApplicationContext, error: discord.DiscordException):
-    raise error  # Here we raise other errors to ensure they aren't ignored
-
-
 @bot.slash_command(
     name="index",
     description="Indexes all pull requests in the given GitHub repository.",
@@ -158,29 +181,25 @@ async def on_application_command_error(ctx: discord.ApplicationContext, error: d
     options = [],
 )
 async def index(ctx: discord.ApplicationContext, repo_url: str):
-    # noinspection PyBroadException
-    try:
-        matches = get_repo_links_from_text(repo_url)
-        if matches == 0:
-            await ctx.respond("Hey, I didn't find any GitHub repository links there.")
-            return
+    matches = get_repo_links_from_text(repo_url)
+    if len(matches) <= 0:
+        await ctx.respond("Hey, I didn't find any GitHub repository links there.")
+        return
 
-        repo_id = RepoId.from_url(matches[0])
-        pull_request_count = morticia.get_github_repo(repo_id).get_pulls("all").totalCount
-        estimated_seconds = pull_request_count * 4
-        estimate = pretty_duration(estimated_seconds)
-        await ctx.respond(f"Okay, I'll go index {repo_id}. This is probably going to take a lot longer than 15 minutes,"
-                          f" so I'll ping you when I'm done!\n\nEstimated time: {estimate}")
+    repo_id = RepoId.from_url(matches[0])
+    pull_request_count = morticia.get_github_repo(repo_id).get_pulls("all").totalCount
+    estimated_seconds = pull_request_count * 4
+    estimate = pretty_duration(estimated_seconds)
+    await ctx.respond(f"Okay, I'll go index {repo_id}. This is probably going to take a lot longer than 15 minutes,"
+                      f" so I'll ping you when I'm done!\n\nEstimated time: {estimate}")
 
-        time_start = time.time()
-        await morticia.index_repo(repo_id)
-        time_stop = time.time()
-        duration = int(time_stop - time_start)
-        display_duration = pretty_duration(duration)
+    time_start = time.time()
+    await morticia.index_repo(repo_id)
+    time_stop = time.time()
+    duration = int(time_stop - time_start)
+    display_duration = pretty_duration(duration)
 
-        await ctx.send(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
-    except Exception:
-        await complain(ctx)
+    await ctx.send(f"{ctx.user.mention} Done indexing {repo_id} in {display_duration}!")
 
 
 @bot.message_command(
@@ -191,10 +210,9 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
     ),
     guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
 )
-@complains
 async def port(ctx: discord.ApplicationContext, message: discord.Message):
     matches: list[str] = get_pr_links_from_text(message.content)
-    if matches == 0:
+    if len(matches) <= 0:
         await ctx.respond("Hey, I didn't find any pull request links there.")
         return
 

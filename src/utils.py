@@ -38,33 +38,6 @@ def pretty_duration(seconds: int) -> str:
     return pretty_time
 
 
-async def complain(ctx: discord.ApplicationContext):
-    traceback.print_exc()
-    # session.rollback()
-    message = f"{ctx.user.mention} Unhandled exception:"
-    with open("trace.txt", "w", encoding="utf-8") as f:
-        f.write(traceback.format_exc())
-    await ctx.send(message, file=discord.File(fp="trace.txt"))
-
-
-def complains(func):
-    """
-    Decorator function for bot commands to automatically respond with any unhandled exceptions.
-    :param func:
-    :return:
-    """
-    async def wrapper(*args, **kwds):
-        # noinspection PyBroadException
-        try:
-            await func(*args, **kwds)
-        except Exception:
-            ctx: discord.ApplicationContext = args[0]
-            await complain(ctx)
-        return None
-
-    return wrapper
-
-
 IMPLICIT_ISSUE_PATTERN = re.compile(r"(?:^|[^\w`])(#\d+)(?:[^\w`]|$)")
 def qualify_implicit_issues(message: str, repo_id: RepoId) -> str:
     """
