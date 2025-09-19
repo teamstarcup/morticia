@@ -35,6 +35,9 @@ token = os.environ.get("GITHUB_TOKEN")
 username = os.environ.get("GITHUB_BOT_USERNAME")
 email = os.environ.get("GITHUB_BOT_EMAIL")
 
+GUILD_IDS = os.environ.get("DISCORD_GUILD_IDS").split(",")
+USER_ROLE_IDS = os.environ.get("USER_ROLE_IDS").split(",")
+
 db_host = os.environ.get("POSTGRES_HOST")
 db_port = os.environ.get("POSTGRES_PORT")
 db_user = os.environ.get("POSTGRES_USER")
@@ -100,7 +103,7 @@ bot = MorticiaBot()
 @bot.slash_command(
     name="pet",
     description="You reach out to pet Morticia...",
-    #guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+    guild_ids=GUILD_IDS,
 )
 @cooldown(1, 10, discord.ext.commands.BucketType.user)
 async def pet(ctx: discord.ApplicationContext):
@@ -114,11 +117,9 @@ async def pet(ctx: discord.ApplicationContext):
 @bot.message_command(
     name="explore",
     description="Open a dialogue of actions for a given PR.",
-    default_member_permissions=discord.Permissions(
-        discord.Permissions.ban_members.flag
-    ),
-    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+    guild_ids=GUILD_IDS,
 )
+@discord.ext.commands.has_any_role(*USER_ROLE_IDS)
 async def explore(ctx: discord.ApplicationContext, message: discord.Message):
     matches: list[str] = get_pr_links_from_text(message.content)
     if len(matches) <= 0:
@@ -174,12 +175,9 @@ async def explore(ctx: discord.ApplicationContext, message: discord.Message):
 @bot.slash_command(
     name="index",
     description="Indexes all pull requests in the given GitHub repository.",
-    default_member_permissions=discord.Permissions(
-        discord.Permissions.ban_members.flag
-    ),
-    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
-    options = [],
+    guild_ids=GUILD_IDS,
 )
+@discord.ext.commands.has_any_role(*USER_ROLE_IDS)
 async def index(ctx: discord.ApplicationContext, repo_url: str):
     matches = get_repo_links_from_text(repo_url)
     if len(matches) <= 0:
@@ -205,11 +203,9 @@ async def index(ctx: discord.ApplicationContext, repo_url: str):
 @bot.message_command(
     name="port",
     description="Begin porting for this PR. You will be prompted for more details.",
-    default_member_permissions=discord.Permissions(
-        discord.Permissions.ban_members.flag
-    ),
-    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+    guild_ids=GUILD_IDS,
 )
+@discord.ext.commands.has_any_role(*USER_ROLE_IDS)
 async def port(ctx: discord.ApplicationContext, message: discord.Message):
     matches: list[str] = get_pr_links_from_text(message.content)
     if len(matches) <= 0:
@@ -225,11 +221,9 @@ async def port(ctx: discord.ApplicationContext, message: discord.Message):
 @bot.slash_command(
     name="search",
     description="Search for pull requests that change a file.",
-    default_member_permissions=discord.Permissions(
-        discord.Permissions.ban_members.flag
-    ),
-    guild_ids=[os.environ.get("DISCORD_GUILD_ID")],
+    guild_ids=GUILD_IDS,
 )
+@discord.ext.commands.has_any_role(*USER_ROLE_IDS)
 async def search(ctx: discord.ApplicationContext, path: str, repo_id: Optional[str]):
     repo_id = repo_id is not None and RepoId.from_string(repo_id) or None
     known_pull_requests = morticia.search_for_file_changes(path, repo_id)
