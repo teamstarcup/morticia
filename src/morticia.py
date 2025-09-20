@@ -101,14 +101,14 @@ class Morticia:
                 await work_repo.cherry_pick(target_pull_request.merge_commit_sha)
         except MergeConflictsException as e:
             while True:
-                future = asyncio.get_running_loop().create_future()
-                paginator = MergeConflictsPaginator(e.conflicts, future)
-                await paginator.respond(interaction, target=target, ephemeral=True)
-                await future
+                paginator = MergeConflictsPaginator(e.conflicts)
+                resume = await paginator.respond(interaction, target=target)
+
+                if not resume:
+                    await paginator.disable(include_custom=True, page="Cancelled.")
+                    return
 
                 await paginator.disable(include_custom=True, page="All conflicts resolved!")
-                if future.cancelled():
-                    return
 
                 await status.write_comment("Resolving conflicts...")
                 for conflict in e.conflicts:

@@ -1,3 +1,4 @@
+import asyncio
 import os
 from asyncio import Future
 from typing import Callable, Coroutine, Any, Optional
@@ -5,11 +6,12 @@ from typing import Callable, Coroutine, Any, Optional
 import discord.ext.pages
 from discord import Interaction
 
+from src.awaitable.paginator import AsyncPaginator
 from src.git import MergeConflict, ResolutionType
 
 
 class MergeConflictsContext:
-    def __init__(self, conflicts: list[MergeConflict], future: Future, refresh_callback: Callable[[], Coroutine[Any, Any, None]]):
+    def __init__(self, conflicts: list[MergeConflict], future: Optional[Future], refresh_callback: Callable[[], Coroutine[Any, Any, None]]):
         self.conflicts = conflicts
         self.future = future
         self.refresh_callback = refresh_callback
@@ -40,11 +42,11 @@ class MergeConflictsContext:
     def continue_merge(self):
         # mark Task resolved to proceed with merge
         # probably also disable the paginator?
-        self.future.set_result(None)
+        self.future.set_result(True)
 
     def cancel_merge(self):
         # mark Task as rejected or something
-        self.future.cancel(None)
+        self.future.set_result(False)
         pass
 
 
@@ -211,8 +213,9 @@ class MergeConflictPage(discord.ext.pages.Page):
 
 
 # noinspection PyRedeclaration
-class MergeConflictsPaginator(discord.ext.pages.Paginator):
-    def __init__(self, conflicts: list[MergeConflict], future: Future, **kwargs):
+class MergeConflictsPaginator(AsyncPaginator):
+    def __init__(self, conflicts: list[MergeConflict], **kwargs):
+        future = asyncio.get_running_loop().create_future()
         conflicts_ctx = MergeConflictsContext(conflicts, future, self._refresh)
         pages = [MergeConflictPage(conflict, conflicts_ctx) for conflict in conflicts]
         super().__init__(pages=pages, default_button_row=1, timeout=900 - 1, trigger_on_display=True, **kwargs)
