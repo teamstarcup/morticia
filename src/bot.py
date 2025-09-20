@@ -89,7 +89,6 @@ def create_bot(*args, **kwargs):
 
 
     @bot.slash_command(
-        name="pet",
         description="You reach out to pet Morticia...",
         guild_ids=GUILD_IDS,
     )
@@ -102,7 +101,6 @@ def create_bot(*args, **kwargs):
 
 
     @bot.message_command(
-        name="port",
         description="Begin porting for this PR. You will be prompted for more details.",
         guild_ids=GUILD_IDS
     )
@@ -125,7 +123,6 @@ def create_bot(*args, **kwargs):
 
 
     @bot.message_command(
-        name="explore",
         description="Open a dialogue of actions for a given PR.",
         guild_ids=GUILD_IDS,
     )
@@ -181,7 +178,6 @@ def create_bot(*args, **kwargs):
 
 
     @bot.slash_command(
-        name="index",
         description="Indexes all pull requests in the given GitHub repository.",
         guild_ids=GUILD_IDS,
     )
@@ -209,7 +205,6 @@ def create_bot(*args, **kwargs):
 
 
     @bot.message_command(
-        name="modal",
         description="Test command",
         guild_ids=GUILD_IDS,
     )
@@ -225,7 +220,6 @@ def create_bot(*args, **kwargs):
 
 
     @bot.slash_command(
-        name="search",
         description="Search for pull requests that change a file.",
         guild_ids=GUILD_IDS,
     )
