@@ -12,7 +12,7 @@ from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange
 from .git import LocalRepo, RepoId, PullRequestId, GitCommandException, MergeConflictsException
 from .status import StatusMessage
 from .ui.pages import MergeConflictsPaginator
-from .utils import obscure_references, qualify_implicit_issues
+from .utils import qualify_implicit_issues
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class Morticia:
         await work_repo.abort_cherry_pick()
         await work_repo.sync_branch_with_remote("origin", work_repo.default_branch)
 
-        await work_repo.track_and_fetch_remote(self.home_repo_id)
+        await work_repo.track_remote(self.home_repo_id)
 
         await work_repo.sync_branch_with_remote(self.home_repo_id.slug(), "main")
 
@@ -74,7 +74,8 @@ class Morticia:
 
         # add target repo as remote to local work repo
         target_repo_id = pr_id.repo_id()
-        await work_repo.track_and_fetch_remote(target_repo_id)
+        await work_repo.track_remote(target_repo_id)
+        await work_repo.fetch(target_repo_id)
 
         # create new branch in local work repo
         branch_name = pr_id.slug()
@@ -136,7 +137,6 @@ class Morticia:
         body += target_pull_request.body
 
         body = qualify_implicit_issues(body, target_repo_id)
-        # body = obscure_references(body)
 
         home_repo_github = self.get_github_repo(self.home_repo_id)
         new_pr = home_repo_github.create_pull(

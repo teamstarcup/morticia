@@ -359,6 +359,11 @@ class LocalRepo:
                 raise e
             raise MergeConflictsException(e, command, conflicts=await self.conflicts())
 
+    async def fetch(self, remote_name: Union[str, RepoId]):
+        if isinstance(remote_name, RepoId):
+            remote_name = remote_name.slug()
+        await self.git(f"fetch {remote_name}")
+
     async def get_remote_url(self, remote: str) -> str:
         stdout, _ = await self.git(f"remote get-url {remote}")
         return stdout.strip()
@@ -382,13 +387,12 @@ class LocalRepo:
         await self.git(f"checkout {local_branch}")
         await self.git(f"reset --hard {remote}/{remote_branch}")
 
-    async def track_and_fetch_remote(self, target_repo_id: RepoId):
+    async def track_remote(self, repo_id: RepoId):
         try:
-            await self.git(f"remote add {target_repo_id.slug()} {target_repo_id.url}")
+            await self.git(f"remote add {repo_id.slug()} {repo_id.url}")
         except GitCommandException as e:
             if "already exists." not in e.stderr:
                 raise e
-        await self.git(f"fetch {target_repo_id.slug()}")
 
     @classmethod
     async def open(cls, repo_id: RepoId, default_branch: str):
