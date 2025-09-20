@@ -2,10 +2,11 @@ import logging
 import os
 import random
 import re
+import sys
 import time
 import traceback
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 
 import discord
 import discord.ext
@@ -74,14 +75,16 @@ class MorticiaBot(discord.Bot):
                               ephemeral=True)
         elif isinstance(error, discord.ext.commands.errors.MissingAnyRole):
             await ctx.respond(f"You are missing role permissions required to run this command.", ephemeral=True)
-        elif isinstance(error, discord.errors.ApplicationCommandInvokeError):
-            # reassign the variable so we can error test for it in later cases
-            error = error.original
-        elif isinstance(error, discord.errors.HTTPException):
-            if "A thread has already been created for this message" in error.text:
-                await ctx.respond(f"A thread has already been created for this message.")
+        elif isinstance(error, discord.errors.HTTPException) and "A thread has already been created for this message" in error.text:
+            await ctx.respond(f"A thread has already been created for this message.", ephemeral=True)
         else:
             await self.handle_exception(error, ctx.interaction)
+
+    async def on_error(self, event_method: str, *args: Any, **kwargs: Any):
+        interaction, _ = args
+        exception, _, _ = sys.exc_info()
+        await self.handle_exception(exception, interaction)
+
 
 
 def create_bot(*args, **kwargs):
