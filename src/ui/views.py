@@ -3,14 +3,15 @@ from discord.ui import Item
 
 from src.morticia import Morticia
 from src.status import StatusMessage
-from .modals import BeginPortModal
-from ..git import PullRequestId, GitCommandException
+from ..awaitable.modal import BeginPortModal
+from ..git import PullRequestId
 
 
 class MyView(discord.ui.View):
-    def __init__(self, morticia: Morticia, pull_request_url: str, *items: Item):
+    def __init__(self, morticia: Morticia, message: discord.Message, pull_request_url: str, *items: Item):
         super().__init__(*items)
         self.morticia = morticia
+        self.original_message = message
         self.pull_request_url = pull_request_url
         self.pull_request_id = PullRequestId.from_url(pull_request_url)
 
@@ -19,11 +20,17 @@ class MyView(discord.ui.View):
         button.emoji = "✅"
         button.disabled = True
         try:
-            message = interaction.message
-            modal = BeginPortModal(self.morticia, message, self.pull_request_id)
-            await interaction.response.send_modal(modal)
-        except GitCommandException as e:
-            await interaction.respond(f"{interaction.user.mention} Encountered a fatal error: \n{e.stdout}\n{e.stderr}")
+            pr_title, pr_description = await BeginPortModal.push(interaction)
+
+            thread = await self.original_message.create_thread(name=pr_title, auto_archive_duration=1440)
+            await thread.add_user(interaction.user)
+            await thread.add_user(self.original_message.author)
+
+            await self.morticia.start_port(self.pull_request_id, pr_title, pr_description, interaction, thread)
+        except discord.errors.HTTPException as http_exception:
+            if "A thread has already been created for this message" not in http_exception.text:
+                raise http_exception
+            await interaction.respond("A thread has already been created for this message.", ephemeral=True)
 
     @discord.ui.button(label="Find ancestors", style=discord.ButtonStyle.primary)
     async def find_ancestors(self, button: discord.Button, interaction: discord.Interaction):
