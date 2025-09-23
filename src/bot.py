@@ -106,7 +106,7 @@ def create_bot(*args, **kwargs):
         await ctx.defer()
 
         repo_id: RepoId = RepoId.from_string(repo_id)
-        revision = f"{repo_id.slug()}/master"
+        revision = f"{repo_id.slug()}/HEAD"
 
         work_repo = await bot.morticia.get_local_repo(bot.morticia.work_repo_id)
 

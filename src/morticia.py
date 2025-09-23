@@ -44,7 +44,7 @@ class Morticia:
         :param repo_id:
         :return:
         """
-        return await LocalRepo.open(repo_id, self.get_github_repo(repo_id).default_branch)
+        return await LocalRepo.open(repo_id)
 
     async def sync_work_repo(self, work_repo: LocalRepo):
         remote_url = await work_repo.get_remote_url("origin")
@@ -54,11 +54,11 @@ class Morticia:
         await work_repo.abort_merge()  # clear previous bad state
         await work_repo.abort_patch()
         await work_repo.abort_cherry_pick()
-        await work_repo.sync_branch_with_remote("origin", work_repo.default_branch)
+        await work_repo.sync_branch_with_remote("origin", await work_repo.default_branch())
 
         await work_repo.track_remote(self.home_repo_id)
 
-        await work_repo.sync_branch_with_remote(self.home_repo_id.slug(), "main")
+        await work_repo.sync_branch_with_remote(self.home_repo_id.slug(), await work_repo.default_branch(self.home_repo_id))
 
         await work_repo.push("origin", force=True)
 

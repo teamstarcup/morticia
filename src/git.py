@@ -192,14 +192,12 @@ class RenamedFileInfo:
 class LocalRepo:
     path: str
     repo_id: RepoId
-    default_branch: str
 
     status: Optional[StatusMessage]
 
-    def __init__(self, path: str, repo_id: RepoId, default_branch: str):
+    def __init__(self, path: str, repo_id: RepoId):
         self.path = path
         self.repo_id = repo_id
-        self.default_branch = default_branch
 
         self.status = None
 
@@ -370,6 +368,19 @@ class LocalRepo:
                 raise e
             raise MergeConflictsException(e, command, conflicts=await self.conflicts())
 
+    async def default_branch(self, repo_id: Optional[RepoId] = None):
+        """
+        Returns the name of the default branch on a remote
+        :param repo_id: id of the remote
+        :return: name of the default branch, e.g. ``main``
+        """
+        remote = "origin"
+        if repo_id is not None:
+            remote = repo_id.slug()
+        stdout, _ = await self.git(f"rev-parse --abbrev-ref {remote}")
+        _, branch_name = stdout.split("/")
+        return branch_name
+
     async def fetch(self, remote_name: Union[str, RepoId]):
         if isinstance(remote_name, RepoId):
             remote_name = remote_name.slug()
@@ -453,16 +464,17 @@ class LocalRepo:
                 raise e
 
     @classmethod
-    async def open(cls, repo_id: RepoId, default_branch: str):
+    async def open(cls, repo_id: RepoId):
         """
         'Opens' or clones a repository in the ``./repositories`` directory.
         """
         repo_dir = f"{REPOSITORIES_DIR}/{repo_id.slug()}"
-        repo = LocalRepo(repo_dir, repo_id, default_branch)
+        repo = LocalRepo(repo_dir, repo_id)
 
         if not os.path.exists(repo_dir):
             await repo.git(f"clone {repo_id.url} {repo_dir}", working_directory=REPOSITORIES_DIR)
 
+        default_branch = await repo.default_branch()
         await repo.git(f"branch -u origin/{default_branch} {default_branch}")
 
         return repo
