@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 import random
@@ -21,6 +22,10 @@ from src.utils import parse_pull_request_urls, pretty_duration, parse_repo_urls
 
 
 STACK_TRACE_FILE_PATH = ".trace.ignore"
+
+EMBEDDED_CODE_TEMPLATE = "```\n{}```"
+MAXIMUM_MESSAGE_SIZE = 200
+MAXIMUM_EMBEDDED_CODE_LENGTH = MAXIMUM_MESSAGE_SIZE - len(EMBEDDED_CODE_TEMPLATE)
 
 GUILD_IDS = os.environ.get("DISCORD_GUILD_IDS").split(",")
 USER_ROLE_IDS = os.environ.get("USER_ROLE_IDS").split(",")
@@ -101,6 +106,50 @@ def create_bot(*args, **kwargs):
             await ctx.respond(f"-# You reach out to pet Morticia, but she is busy raccooning around.")
         else:
             await ctx.respond(f"-# You pet Morticia on her trash eating little head. 💕 🦝")
+
+
+    @bot.slash_command(
+        description="Search for commits that have changed a file",
+        guild_ids=GUILD_IDS,
+    )
+    async def files(ctx: discord.ApplicationContext, file_path: str, repo_id: str):
+        await ctx.defer()
+
+        repo_id: RepoId = RepoId.from_string(repo_id)
+        revision = f"{repo_id.slug()}/master"
+
+        work_repo = await bot.morticia.get_local_repo(bot.morticia.work_repo_id)
+
+        # recursive search to find the most recent path of the given file
+        # git's `--follow` will not suffice: it can only follow renames going backward through history
+        recursion = True
+        while recursion:
+            recursion = False
+
+            file_change_commits = await work_repo.list_commits_changing_file(revision, file_path=file_path)
+
+            if len(file_change_commits) <= 0:
+                break
+
+            renamed_files = await work_repo.list_renamed_files_in_commit(file_change_commits[0])
+            for renamed_file in renamed_files:
+                if not renamed_file.before == file_path:
+                    continue
+
+                file_path = renamed_file.after
+                recursion = True
+                break
+
+        file_change_commits = await work_repo.list_commits_changing_file(revision, file_path=file_path, format_opt="--oneline", opts="--follow")
+
+        raw_message = "\n".join(file_change_commits)
+
+        if len(raw_message) > MAXIMUM_EMBEDDED_CODE_LENGTH:
+            with io.BytesIO(raw_message.encode("utf-8")) as f:
+                await ctx.respond("", files=[discord.File(fp=f, filename="output.txt")])
+        else:
+            message = EMBEDDED_CODE_TEMPLATE.format(raw_message)
+            await ctx.respond(message)
 
 
     @bot.message_command(

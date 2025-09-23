@@ -177,6 +177,17 @@ class MergeConflictsException(CommandException):
         self.conflicts = conflicts
 
 
+class RenamedFileInfo:
+    similarity: int  # between 0 and 100
+    before: str
+    after: str
+
+    def __init__(self, similarity: int, before: str, after: str):
+        self.similarity = similarity
+        self.before = before
+        self.after = after
+
+
 # noinspection PyRedeclaration
 class LocalRepo:
     path: str
@@ -371,6 +382,41 @@ class LocalRepo:
     async def hard_reset_with_remote_branch(self, target_repo_id: RepoId, branch: str):
         await self.git(f"reset --hard {target_repo_id.slug()}/{branch}")
 
+    async def list_commits_changing_file(self, *revisions, file_path: str, format_opt: str = "--format=format:%H", opts: str = "") -> list[str]:
+        """
+        Lists commits in the given revisions that have modified the given file in reverse chronological order.
+        :param file_path:
+        :param format_opt:
+        :param opts:
+        :return:
+        """
+        revisions = ''.join(revisions)
+        stdout, _ = await self.git(f"log {format_opt} {opts} {revisions} -- {file_path}")
+        return stdout.splitlines()
+
+    async def list_files_in_commit(self, commit_sha: str) -> list[str]:
+        """
+        List the files changed by a given commit.
+        :param commit_sha: Hash of the commit
+        :return: A list of file paths changed by this commit
+        """
+        stdout, _ = await self.git(f"diff-tree --no-commit-id --name-only {commit_sha} -r")
+        return stdout.splitlines()
+
+    async def list_renamed_files_in_commit(self, commit_sha: str):
+        """
+        List files which have been detected as being renamed in a given commit.
+        :param commit_sha: Hash of the commit
+        :return: A list of RenamedFileInfo objects with the before name, after name, and similarity score
+        """
+        stdout, _ = await self.git(f"diff --name-status --diff-filter=R -l0 {commit_sha}~1..{commit_sha}")
+        results: list[RenamedFileInfo] = []
+        for line in stdout.splitlines():
+            similarity, before, after = line.split()
+            similarity = int(similarity[1:])
+            results.append(RenamedFileInfo(similarity, before, after))
+        return results
+
     async def push(self, remote: Optional[str] = "", remote_branch: Optional[str] = "", force: bool = False):
         force_flag = force and "--force" or ""
         await self.git(f"push {remote} {remote_branch} {force_flag}")
@@ -386,6 +432,18 @@ class LocalRepo:
         await self.git(f"fetch {remote}")
         await self.git(f"checkout {local_branch}")
         await self.git(f"reset --hard {remote}/{remote_branch}")
+
+    async def rev_list(self, *args: str) -> list[str]:
+        """
+        Lists commit objects in reverse chronological order.
+
+        See https://git-scm.com/docs/git-rev-list for usage.
+        :param parent:
+        :param to:
+        :return:
+        """
+        stdout, _ = await self.git(f"rev-list {''.join(*args)}")
+        return stdout.splitlines()
 
     async def track_remote(self, repo_id: RepoId):
         try:

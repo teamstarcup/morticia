@@ -357,3 +357,14 @@ class Morticia:
             descendant_links.append(f"#{descendant.pull_request_id} - {descendant.title}")
 
         return descendant_links
+
+    def eventual_file_name(self, file_path: str, repo_id: RepoId):
+        """
+        Finds the most recent path for a given file
+        :param file_path:
+        :param repo_id:
+        :return:
+        """
+        statement = sqlalchemy.select(KnownFileChange).where(KnownFileChange.repo_id == str(repo_id), KnownFileChange.previous_file_path == file_path)
+        known_file_change: KnownFileChange = self.session.execute(statement).scalar()
+        return known_file_change and known_file_change.file_path or None
