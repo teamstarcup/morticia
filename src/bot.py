@@ -18,14 +18,7 @@ from src.git import RepoId
 from src.model import KnownPullRequest
 from src.morticia import Morticia
 from src.ui.views import MyView
-from src.utils import parse_pull_request_urls, pretty_duration, parse_repo_urls
-
-
-STACK_TRACE_FILE_PATH = ".trace.ignore"
-
-EMBEDDED_CODE_TEMPLATE = "```\n{}```"
-MAXIMUM_MESSAGE_SIZE = 200
-MAXIMUM_EMBEDDED_CODE_LENGTH = MAXIMUM_MESSAGE_SIZE - len(EMBEDDED_CODE_TEMPLATE)
+from src.utils import parse_pull_request_urls, pretty_duration, parse_repo_urls, temporary_file, send_embedded_output
 
 GUILD_IDS = os.environ.get("DISCORD_GUILD_IDS").split(",")
 USER_ROLE_IDS = os.environ.get("USER_ROLE_IDS").split(",")
@@ -51,13 +44,10 @@ class MorticiaBot(discord.Bot):
         trace = trace.replace(self.morticia.auth.token, "<REDACTED>")
         traceback.print_exception(exception)
 
-        with open(STACK_TRACE_FILE_PATH, "w", encoding="utf-8") as f:
-            f.write(trace)
-
         message = "Unhandled exception:"
         if interaction.response.is_done():
             message = f"{interaction.user.mention} {message}"
-        await interaction.respond(message, file=discord.File(fp=STACK_TRACE_FILE_PATH, filename="trace.txt"))
+        await interaction.respond(message, file=temporary_file(trace, filename="trace.txt"))
 
         jump_url = f"https://discord.com/channels/{interaction.guild_id}/{interaction.channel.id}/{interaction.id}"
         log.error(f"Printed exception to Discord: {jump_url}")
@@ -141,15 +131,7 @@ def create_bot(*args, **kwargs):
                 break
 
         file_change_commits = await work_repo.list_commits_changing_file(revision, file_path=file_path, format_opt="--oneline", opts="--follow")
-
-        raw_message = "\n".join(file_change_commits)
-
-        if len(raw_message) > MAXIMUM_EMBEDDED_CODE_LENGTH:
-            with io.BytesIO(raw_message.encode("utf-8")) as f:
-                await ctx.respond("", files=[discord.File(fp=f, filename="output.txt")])
-        else:
-            message = EMBEDDED_CODE_TEMPLATE.format(raw_message)
-            await ctx.respond(message)
+        await send_embedded_output(ctx, "\n".join(file_change_commits))
 
 
     @bot.message_command(

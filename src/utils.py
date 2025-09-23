@@ -1,4 +1,7 @@
+import io
 import re
+
+import discord
 
 from src.git import RepoId, PullRequestId
 
@@ -40,3 +43,32 @@ def qualify_implicit_issues(message: str, repo_id: RepoId) -> str:
     :return:
     """
     return IMPLICIT_ISSUE_PATTERN.sub(rf" `{repo_id}\1`", message)
+
+
+def temporary_file(content: str | bytes, filename: str = "output.txt"):
+    """
+    Creates and returns a memory-backed discord.File for upload.
+    :param content:
+    :param filename:
+    :return:
+    """
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    return discord.File(fp=io.BytesIO(content), filename=filename)
+
+
+EMBEDDED_CODE_TEMPLATE = "```\n{}```"
+MAXIMUM_MESSAGE_SIZE = 2000
+MAXIMUM_EMBEDDED_CODE_LENGTH = MAXIMUM_MESSAGE_SIZE - len(EMBEDDED_CODE_TEMPLATE)
+async def send_embedded_output(interaction: discord.ApplicationContext | discord.Interaction, message: str):
+    """
+    Sends a message as an embed or an uploaded file, based on message size. Automatically handles embedding formatting.
+    :param interaction:
+    :param message:
+    :return:
+    """
+    if len(message) > MAXIMUM_EMBEDDED_CODE_LENGTH:
+        return await interaction.respond("", files=[temporary_file(message)])
+    else:
+        message = EMBEDDED_CODE_TEMPLATE.format(message)
+        return await interaction.respond(message)

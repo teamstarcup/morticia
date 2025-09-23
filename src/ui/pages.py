@@ -8,6 +8,7 @@ from discord import Interaction
 
 from src.awaitable.paginator import AsyncPaginator
 from src.git import MergeConflict, ResolutionType
+from src.utils import temporary_file
 
 
 class MergeConflictsContext:
@@ -186,14 +187,12 @@ class MergeConflictPage(discord.ext.pages.Page):
         files = []
         if len(diff) > MAX_EMBED_LENGTH:
             diff = f"{diff[:4000]}\n\x1B[0m...\nTruncated diff"
-            with open("diff.ignore", "w", encoding="utf-8") as f:
-                f.write(conflict.diff)
             file_name = f"{os.path.basename(conflict.path)}.diff.txt"
-            files.append(discord.File("diff.ignore", file_name))
+            diff_output_file = temporary_file(conflict.diff, filename=file_name)
+            files.append(diff_output_file)
 
-        with open("content.ignore", "wb") as f:
-            f.write(conflict.content.encode("utf-8"))
-        files.append(discord.File("content.ignore", f"{os.path.basename(conflict.path)}"))
+        content_file = temporary_file(conflict.content, f"{os.path.basename(conflict.path)}")
+        files.append(content_file)
 
         desc = f"```ansi\n{diff}\n```"
         self.view = MergeConflictView(conflict, ctx)
