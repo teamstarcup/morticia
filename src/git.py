@@ -16,6 +16,17 @@ os.makedirs(REPOSITORIES_DIR, exist_ok=True)
 
 
 class RepoId:
+    aliases = {
+        "deltav": "deltav-station/delta-v",
+        "delta-v": "deltav-station/delta-v",
+        "den": "thedenss14/theden",
+        "theden": "thedenss14/theden",
+        "imp": "impstation/imp-station-14",
+        "impstation": "impstation/imp-station-14",
+        "l5": "lagrange14/substations",
+        "lagrange": "lagrange14/substations",
+    }
+
     org_name: str
     repo_name: str
 
@@ -44,6 +55,8 @@ class RepoId:
 
     @classmethod
     def from_string(cls, text: str):
+        if expansion := RepoId.aliases.get(text):
+            text = expansion
         repo_id = RepoId()
         repo_id.org_name, repo_id.repo_name, *_ = text.lower().split("/")
         return repo_id
