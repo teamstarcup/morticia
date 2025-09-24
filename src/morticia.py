@@ -67,7 +67,7 @@ class Morticia:
 
         await status.write_comment(f"Opening {self.work_repo_id} ...")
         work_repo = await self.get_local_repo(self.work_repo_id)
-        work_repo.status = status
+        work_repo.subscribe(status)
 
         await status.write_comment(f"Synchronizing with {self.home_repo_id}")
         await self.sync_work_repo(work_repo)
@@ -147,6 +147,8 @@ class Morticia:
             draft=naive_resolution_applied
         )
 
+        await status.flush()
+        work_repo.unsubscribe(status)
         await target.send(f"Complete: {new_pr.html_url}")
 
     async def index_repo(self, repo_id: RepoId):

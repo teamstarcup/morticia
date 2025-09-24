@@ -7,7 +7,7 @@ from typing import Optional, Union
 import requests
 from slugify import slugify
 
-from .status import StatusMessage
+from .pubsub import PublisherMixin, MessageEvent
 
 GITHUB_URL = "https://github.com/"
 
@@ -202,17 +202,14 @@ class RenamedFileInfo:
 
 
 # noinspection PyRedeclaration
-class LocalRepo:
+class LocalRepo(PublisherMixin):
     path: str
     repo_id: RepoId
 
-    status: Optional[StatusMessage]
-
     def __init__(self, path: str, repo_id: RepoId):
+        super().__init__()
         self.path = path
         self.repo_id = repo_id
-
-        self.status = None
 
     async def naive_conflict_resolution(self, e: MergeConflictsException, continue_command: str):
         naive_resolution_applied = False
@@ -233,13 +230,13 @@ class LocalRepo:
 
     async def diff(self, file_path: str):
         try:
-            stdout, _ = await self.subprocess(f"difft --display=inline --color=always {file_path}")
+            stdout, _, _ = await self.subprocess(f"difft --display=inline --color=always {file_path}")
         except CommandException as e:
             if not "Difftastic requires two paths" in e.stderr:
                 raise e
             # create empty file for single-file diffing
             open(".empty.ignore", "a").close()
-            stdout, _ = await self.subprocess(f"difft --display=inline --color=always ../../.empty.ignore {file_path}")
+            stdout, _, _ = await self.subprocess(f"difft --display=inline --color=always ../../.empty.ignore {file_path}")
             os.remove(".empty.ignore")
 
         stdout = convert_discord_ansi(stdout)
@@ -259,18 +256,19 @@ class LocalRepo:
         if proc.returncode != 0:
             raise CommandException(stdout, stderr, proc.returncode)
 
-        return stdout, proc.returncode
+        return stdout, stderr, proc.returncode
 
     async def git(self, cmd: str, working_directory: Optional[Union[str, bytes, os.PathLike]] = None):
         command_str = f"git {cmd}"
-        if self.status:
-            await self.status.write_command(command_str)
+        await self._publish(MessageEvent("command", command_str))
 
         try:
-            stdout, return_code = await self.subprocess(command_str, working_directory)
+            stdout, stderr, return_code = await self.subprocess(command_str, working_directory)
 
-            if self.status:
-                await self.status.write_line(stdout)
+            if len(stdout) > 0:
+                await self._publish(MessageEvent("standard", stdout))
+            if len(stderr) > 0:
+                await self._publish(MessageEvent("error", stderr))
         except CommandException as e:
             raise GitCommandException(e)
         return stdout, return_code

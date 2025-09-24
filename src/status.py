@@ -1,9 +1,11 @@
 import os
+import time
 from enum import Enum
 
-import discord
 from discord import Interaction
 from discord.abc import Messageable
+
+from src.pubsub import SubscriberMixin, MessageEvent
 
 MAX_MESSAGE_LENGTH = 2000
 FORMATTING_CHARS_LENGTH = 12
@@ -22,12 +24,29 @@ class Format(Enum):
     ERROR = 3
 
 
-class StatusMessage:
+class StatusMessage(SubscriberMixin):
     def __init__(self, target: Messageable | Interaction):
+        super().__init__()
         self.target = target
         self.buffered_text = ""
         self.next_message = True
         self.message = None
+
+        self._last_flush = 0
+        self._flush_time = 0.5
+
+    async def receive_message(self, event: MessageEvent):
+        func = self.write_line
+        match event.title:
+            case "standard":
+                func = self.write_line
+            case "command":
+                func = self.write_command
+            case "comment":
+                func = self.write_comment
+            case "error":
+                func = self.write_error
+        await func(event.message)
 
     async def write(self, message: str) -> None:
         message = message.replace(os.environ.get("GITHUB_TOKEN"), "<REDACTED>")
@@ -45,6 +64,10 @@ class StatusMessage:
             self.buffered_text = ""
 
         self.buffered_text += message
+    
+    async def _periodic_flush(self):
+        if self._last_flush + self._flush_time < time.time():
+            await self.flush()
 
     async def write_line(self, message: str, format: Format = Format.STANDARD):
         match format:
@@ -56,7 +79,7 @@ class StatusMessage:
                 message = f"{MAGIC_RUNES_ERROR} {message}"
         message += "\n"
         await self.write(message)
-        await self.flush()
+        await self._periodic_flush()
 
     async def write_command(self, message: str):
         await self.write_line(message, Format.COMMAND)
@@ -81,6 +104,8 @@ class StatusMessage:
             self.next_message = False
         else:
             await self.message.edit(content=content)
+
+        self._last_flush = time.time()
 
 
 class Spinner:
