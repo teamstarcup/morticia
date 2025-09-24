@@ -210,7 +210,7 @@ class MergeConflictsPaginator(AsyncPaginator):
         future = asyncio.get_running_loop().create_future()
         conflicts_ctx = MergeConflictsContext(conflicts, future, self._refresh)
         pages = [MergeConflictPage(conflict, conflicts_ctx) for conflict in conflicts]
-        super().__init__(pages=pages, default_button_row=1, timeout=900 - 1, trigger_on_display=True, **kwargs)
+        super().__init__(future, pages=pages, default_button_row=1, timeout=900 - 1, trigger_on_display=True, **kwargs)
 
     async def _refresh(self):
         await self.goto_page(self.current_page)
