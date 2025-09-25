@@ -28,7 +28,10 @@ class PortingMethod(Enum):
 
 
 class Project:
+    branch = None
     initial_pull_request_opened: bool = False
+    latest_pull_request_id: Optional[PullRequestId]
+    _state: ProjectLatestAddition
 
     def __init__(self, thread: discord.Thread, work_repo: LocalRepo, github: Github, session: Session):
         self.thread = thread
@@ -37,9 +40,7 @@ class Project:
         self.github = github
         self.session = session
 
-        self.branch = None
         self.status_message = StatusMessage(thread)
-
         self._benchmark_start = None
 
     def __enter__(self):
@@ -49,6 +50,22 @@ class Project:
     def __exit__(self, exc_type, exc_value, traceback):
         self.publisher.unsubscribe(self.status_message)
         self.work_repo.publisher = None
+
+    @classmethod
+    async def create(cls, thread: discord.Thread, work_repo: LocalRepo, github: Github, session: Session):
+        project = Project(thread, work_repo, github, session)
+        await project._load_state_from_thread()
+        return project
+
+    async def _load_state_from_thread(self):
+        initial_pull_request_id = await self.get_initial_pull_request()
+        self.branch = initial_pull_request_id.slug()
+
+        self._state = ProjectLatestAddition.as_unique(self.session, self.branch)
+        latest_pull_request_id = self._state.pull_request_id
+        if latest_pull_request_id is not None:
+            self.initial_pull_request_opened = True
+            self.latest_pull_request_id = PullRequestId.from_string(latest_pull_request_id)
 
     async def _get_github_repo(self, repo_id: RepoId):
         return self.github.get_repo(str(repo_id))
@@ -68,17 +85,9 @@ class Project:
         Returns the initial pull request which was ported in this project.
         :return:
         """
-        original_message = await self.thread.fetch_message(self.thread.id)
+        original_message = await self.thread.parent.fetch_message(self.thread.id)
         pull_request_id = parse_pull_request_urls(original_message.content).pop()
         return pull_request_id
-
-    async def get_branch(self, or_name: Optional[str] = None):
-        if self.initial_pull_request_opened and not self.branch:
-            pull_request_id = await self.get_initial_pull_request()
-            self.branch = pull_request_id.slug()
-        elif not self.branch:
-            self.branch = or_name
-        return self.branch
 
     async def prepare_repo(self, token: str):
         """
@@ -113,16 +122,8 @@ class Project:
         Obtains the state for the latest pull request ported in this project.
         :return: ProjectLatestAddition
         """
-        branch = await self.get_branch()
-        project_latest_addition = self.session.execute(
-            sqlalchemy.select(ProjectLatestAddition).where(ProjectLatestAddition.branch == branch)
-        ).scalar()
-
-        if project_latest_addition is None:
-            project_latest_addition = ProjectLatestAddition()
-            project_latest_addition.branch = branch
-            self.session.add(project_latest_addition)
-
+        branch = await self.branch
+        project_latest_addition = ProjectLatestAddition.as_unique(self.session, branch)
         return project_latest_addition
 
     async def _select_porting_method(self, pull_request_id: PullRequestId):
@@ -153,14 +154,29 @@ class Project:
         await self.work_repo.fetch(target_repo_id)
 
     async def _finish_adding_pull_request(self, pull_request_id: PullRequestId):
-        await self.work_repo.push("origin", await self.get_branch())
-        project_state = await self._get_project_state()
-        project_state.pull_request_id = str(pull_request_id)
+        await self.work_repo.push("origin", await self.branch)
+        self._state.branch = self._state.branch or self.branch
+        self._state.pull_request_id = str(pull_request_id)
         self.session.commit()
 
         duration = int(time.time() - self._benchmark_start)
         await self.publisher.publish(MessageEvent("comment", f"Completed in {pretty_duration(duration)}"))
         await self.status_message.flush()
+
+    async def interpolate_file_paths_between_commits(self, from_revision: str, to_revision: str):
+        """
+        Renames files in HEAD according to how they were renamed from one commit to another.
+        :param from_revision:
+        :param to_revision:
+        :return:
+        """
+        # find the earliest original commit hash in the new pull request
+        # this depends on merge commit style and if the new pull request is unmerged
+        # morticia.py has to be refactored to do this
+
+        # create a relocation commit renaming files between the last target commit and our next target commit
+        # apply patch or cherry-pick files
+        pass
 
     async def add_pull_request(self, pull_request_id: PullRequestId):
         """
@@ -179,7 +195,7 @@ class Project:
         await self._fetch_remote_for_pull_request(pull_request_id)
 
         # create new branch in local work repo
-        await self.work_repo.checkout(await self.get_branch(pull_request_id.slug()))
+        await self.work_repo.checkout(await self.branch)
 
         # TODO: Migrate file names from existing commits authored before the new commit/s
         # For each commit on this branch not reachable from `origin/HEAD`
@@ -247,7 +263,7 @@ class Project:
         home_repo_github = await self._get_github_repo(HOME_REPO_ID)
         new_pull_request = home_repo_github.create_pull(
             await self.work_repo.default_branch(HOME_REPO_ID),
-            f"{await self._get_github_username()}:{await self.get_branch()}",
+            f"{await self._get_github_username()}:{await self.branch}",
             body=body,
             title=title,
             draft=draft,
@@ -494,20 +510,3 @@ class Morticia:
         statement = sqlalchemy.select(KnownFileChange).where(KnownFileChange.repo_id == str(repo_id), KnownFileChange.previous_file_path == file_path)
         known_file_change: KnownFileChange = self.session.execute(statement).scalar()
         return known_file_change and known_file_change.file_path or None
-
-    def project_state(self, branch: str) -> ProjectLatestAddition:
-        """
-        Obtains the latest pull request addition to an existing port project.
-        :param branch:
-        :return:
-        """
-        project_latest_addition = self.session.execute(
-            sqlalchemy.select(ProjectLatestAddition).where(ProjectLatestAddition.branch == branch)
-        ).scalar()
-
-        if project_latest_addition is None:
-            project_latest_addition = ProjectLatestAddition()
-            project_latest_addition.branch = branch
-            self.session.add(project_latest_addition)
-
-        return project_latest_addition

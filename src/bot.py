@@ -80,13 +80,19 @@ class MorticiaBot(discord.Bot):
         await self.handle_exception(exception, interaction)
 
     async def start_port(self, interaction: discord.Interaction, message: discord.Message, pr_id: PullRequestId, title: str):
-        thread = await message.create_thread(name=title, auto_archive_duration=1440)
-        await thread.add_user(interaction.user)
-        await thread.add_user(message.author)
+        if isinstance(interaction.channel, discord.Thread):
+            thread = interaction.channel
+            if thread.owner != self.user:
+                await interaction.respond("Sorry, you can't use this command inside a non-port thread!")
+                return
+        else:
+            thread = await message.create_thread(name=title, auto_archive_duration=1440)
+            await thread.add_user(interaction.user)
+            await thread.add_user(message.author)
 
         work_repo = await LocalRepo.open(self.morticia.work_repo_id)
 
-        project = Project(thread, work_repo, self.morticia.github, self.session)
+        project = await Project.create(thread, work_repo, self.morticia.github, self.session)
         with project:
             await project.prepare_repo(self.morticia.auth.token)
             success = await project.add_pull_request_interactive(pr_id, interaction)
@@ -165,35 +171,6 @@ def create_bot(*args, **kwargs):
 
         title = await BeginPortModal.push(ctx.interaction)
         await bot.start_port(ctx.interaction, message, pull_request_id, title)
-
-
-    # @bot.slash_command(
-    #     description="Add another pull request to the current port. Must be used within an existing port thread.",
-    #     guild_ids=GUILD_IDS,
-    # )
-    # async def add(ctx: discord.ApplicationContext, pull_request_url: str):
-    #     if not isinstance(ctx.channel, discord.Thread):
-    #         await ctx.respond("This command may only be used inside an existing port thread.")
-    #         return
-    #
-    #     # find latest added original commit hash in this thread
-    #     thread: discord.Thread = ctx.channel
-    #     original_message = await thread.fetch_message(thread.id)
-    #     pull_request_id = parse_pull_request_urls(original_message.content).pop()
-    #     state = bot.morticia.project_state(pull_request_id.slug())
-    #
-    #     latest_pull_request_id = state.pull_request_id
-    #
-    #     await ctx.respond(f"Latest pull request: {latest_pull_request_id}")
-    #
-    #     # find the earliest original commit hash in the new pull request
-    #     # this depends on merge commit style and if the new pull request is unmerged
-    #     # morticia.py has to be refactored to do this
-    #
-    #     # create a relocation commit renaming files between the last target commit and our next target commit
-    #     # apply patch or cherry-pick files
-    #
-    #     pass
 
     @bot.message_command(
         description="Open a dialogue of actions for a given PR.",

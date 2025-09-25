@@ -94,6 +94,16 @@ class PullRequestId:
         pr_id.number = int(url[last_slash + 1:])
         return pr_id
 
+    @classmethod
+    def from_string(cls, text: str):
+        repo, number = text.split("#", 1)
+        repo_id = RepoId.from_string(repo)
+        pr_id = PullRequestId()
+        pr_id.org_name = repo_id.org_name
+        pr_id.repo_name = repo_id.repo_name
+        pr_id.number = int(number)
+        return pr_id
+
 
 class CommandException(BaseException):
     stdout: str
