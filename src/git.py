@@ -206,7 +206,7 @@ class LocalRepo:
     path: str
     repo_id: RepoId
 
-    publisher: Optional[Publisher]
+    publisher: Optional[Publisher] = None
 
     def __init__(self, path: str, repo_id: RepoId):
         super().__init__()
@@ -245,7 +245,7 @@ class LocalRepo:
         return stdout
 
     async def _publish(self, event: BaseEvent):
-        if self.publisher:
+        if self.publisher is not None:
             await self.publisher.publish(event)
 
     async def subprocess(self, cmd: str, working_directory: Optional[Union[str, bytes, os.PathLike]] = None):
