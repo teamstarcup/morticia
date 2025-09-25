@@ -202,3 +202,19 @@ class KnownFileChange(Base, UniqueMixin):
     @classmethod
     def unique_filter(cls, query, pull_request_id, repo_id, file_path):
         return query.filter(KnownFileChange.pull_request_id == pull_request_id).filter(KnownFileChange.repo_id == repo_id).filter(KnownFileChange.file_path == file_path)
+
+
+class ProjectLatestAddition(Base, UniqueMixin):
+    __tablename__ = "project_latest_addition"
+
+    branch: Mapped[str] = mapped_column(primary_key=True)
+    pull_request_id: Mapped[str]
+
+    @classmethod
+    def unique_hash(cls, branch: str):
+        return f"project_latest_addition/{branch}"
+
+    # noinspection PyMethodOverriding
+    @classmethod
+    def unique_filter(cls, query, branch: str):
+        return query.filter(ProjectLatestAddition.branch == branch)

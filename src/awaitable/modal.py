@@ -53,21 +53,11 @@ class BeginPortModal(AsyncModal):
         super().__init__(title="Begin Port", *args, **kwargs)
 
         self.add_item(discord.ui.InputText(label="Pull Request Title"))
-        # noinspection PyTypeChecker
-        self.add_item(
-            discord.ui.InputText(
-                label="Pull Request Description",
-                style=discord.InputTextStyle.long,
-                placeholder="Leave empty to quote from the target pull request",
-                required=False
-            )
-        )
 
     async def callback(self, interaction: Interaction):
         await interaction.response.defer(invisible=True)
         pr_title = self.children[0].value
-        pr_desc = self.children[1].value
-        self.future.set_result((pr_title, pr_desc))
+        self.future.set_result(pr_title)
 
     @classmethod
     async def push(cls, interaction: discord.Interaction, *args, **kwargs):

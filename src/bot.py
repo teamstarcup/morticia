@@ -1,4 +1,3 @@
-import io
 import logging
 import os
 import random
@@ -14,9 +13,9 @@ import discord.ext
 from sqlalchemy.orm import Session
 
 from src.awaitable.modal import BeginPortModal
-from src.git import RepoId
+from src.git import RepoId, PullRequestId, LocalRepo
 from src.model import KnownPullRequest
-from src.morticia import Morticia
+from src.morticia import Morticia, Project
 from src.ui.views import MyView
 from src.utils import parse_pull_request_urls, pretty_duration, parse_repo_urls, temporary_file, send_embedded_output
 
@@ -80,6 +79,23 @@ class MorticiaBot(discord.Bot):
         exception, _, _ = sys.exc_info()
         await self.handle_exception(exception, interaction)
 
+    async def start_port(self, interaction: discord.Interaction, message: discord.Message, pr_id: PullRequestId, title: str):
+        thread = await message.create_thread(name=title, auto_archive_duration=1440)
+        await thread.add_user(interaction.user)
+        await thread.add_user(message.author)
+
+        work_repo = await LocalRepo.open(self.morticia.work_repo_id)
+
+        project = Project(thread, work_repo, self.morticia.github, self.session)
+        with project:
+            await project.prepare_repo(self.morticia.auth.token)
+            success = await project.add_pull_request_interactive(pr_id, interaction)
+            if not success:
+                # process was timed out or cancelled by user
+                return
+            # await thread.send("I would have submitted a pull request, but this was a dry run.")
+            new_pull_request = await project.create_pull_request(title, pr_id)
+            await thread.send(f"Complete: {new_pull_request.html_url}")
 
 
 def create_bot(*args, **kwargs):
@@ -108,7 +124,7 @@ def create_bot(*args, **kwargs):
         repo_id: RepoId = RepoId.from_string(repo_id)
         revision = f"{repo_id.slug()}/HEAD"
 
-        work_repo = await bot.morticia.get_local_repo(bot.morticia.work_repo_id)
+        work_repo = await LocalRepo.open(bot.morticia.work_repo_id)
 
         # recursive search to find the most recent path of the given file
         # git's `--follow` will not suffice: it can only follow renames going backward through history
@@ -147,14 +163,37 @@ def create_bot(*args, **kwargs):
 
         pull_request_id = pull_request_ids.pop()
 
-        pr_title, pr_description = await BeginPortModal.push(ctx.interaction)
+        title = await BeginPortModal.push(ctx.interaction)
+        await bot.start_port(ctx.interaction, message, pull_request_id, title)
 
-        thread = await message.create_thread(name=pr_title, auto_archive_duration=1440)
-        await thread.add_user(ctx.interaction.user)
-        await thread.add_user(message.author)
 
-        await bot.morticia.start_port(pull_request_id, pr_title, pr_description, ctx.interaction, thread)
-
+    # @bot.slash_command(
+    #     description="Add another pull request to the current port. Must be used within an existing port thread.",
+    #     guild_ids=GUILD_IDS,
+    # )
+    # async def add(ctx: discord.ApplicationContext, pull_request_url: str):
+    #     if not isinstance(ctx.channel, discord.Thread):
+    #         await ctx.respond("This command may only be used inside an existing port thread.")
+    #         return
+    #
+    #     # find latest added original commit hash in this thread
+    #     thread: discord.Thread = ctx.channel
+    #     original_message = await thread.fetch_message(thread.id)
+    #     pull_request_id = parse_pull_request_urls(original_message.content).pop()
+    #     state = bot.morticia.project_state(pull_request_id.slug())
+    #
+    #     latest_pull_request_id = state.pull_request_id
+    #
+    #     await ctx.respond(f"Latest pull request: {latest_pull_request_id}")
+    #
+    #     # find the earliest original commit hash in the new pull request
+    #     # this depends on merge commit style and if the new pull request is unmerged
+    #     # morticia.py has to be refactored to do this
+    #
+    #     # create a relocation commit renaming files between the last target commit and our next target commit
+    #     # apply patch or cherry-pick files
+    #
+    #     pass
 
     @bot.message_command(
         description="Open a dialogue of actions for a given PR.",
@@ -208,7 +247,10 @@ def create_bot(*args, **kwargs):
             icon_url=pull_request.user.avatar_url,
             url=f"https://github.com/{pull_request.user.login}",
         )
-        await ctx.respond("", embed=embed, view=MyView(bot.morticia, message, pull_request_id.url))
+
+        def callback(title: str):
+            return bot.start_port(ctx.interaction, message, pull_request_id, title)
+        await ctx.respond("", embed=embed, view=MyView(callback, bot.morticia, pull_request_id.url))
 
 
     @bot.slash_command(

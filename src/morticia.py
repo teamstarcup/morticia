@@ -1,20 +1,260 @@
 import asyncio
 import logging
+import time
+from enum import Enum
 from typing import Optional
 
 import discord
 import sqlalchemy
-from discord.abc import Messageable
 from github import Github, Auth, UnknownObjectException
 from sqlalchemy.orm import Session
 
-from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange
-from .git import LocalRepo, RepoId, PullRequestId, GitCommandException, MergeConflictsException
+from src.model import KnownPullRequest, KnownRepo, KnownFile, KnownFileChange, ProjectLatestAddition
+from .git import LocalRepo, RepoId, PullRequestId, MergeConflictsException
+from .pubsub import Publisher, MessageEvent
 from .status import StatusMessage
 from .ui.pages import MergeConflictsPaginator
-from .utils import qualify_implicit_issues
+from .utils import qualify_implicit_issues, parse_pull_request_urls, pretty_duration
 
 log = logging.getLogger(__name__)
+
+
+HOME_REPO_ID = RepoId("teamstarcup", "starcup")
+
+
+class PortingMethod(Enum):
+    PATCH = 0,
+    CHERRY_PICK = 1,
+
+
+class Project:
+    initial_pull_request_opened: bool = False
+
+    def __init__(self, thread: discord.Thread, work_repo: LocalRepo, github: Github, session: Session):
+        self.thread = thread
+        self.publisher = Publisher()
+        self.work_repo = work_repo
+        self.github = github
+        self.session = session
+
+        self.branch = None
+        self.status_message = StatusMessage(thread)
+
+        self._benchmark_start = None
+
+    def __enter__(self):
+        self.publisher.subscribe(self.status_message)
+        self.work_repo.publisher = self.publisher
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.publisher.unsubscribe(self.status_message)
+        self.work_repo.publisher = None
+
+    async def _get_github_repo(self, repo_id: RepoId):
+        return self.github.get_repo(str(repo_id))
+
+    async def _get_pull_request(self, pull_request_id: PullRequestId):
+        repo = await self._get_github_repo(pull_request_id.repo_id())
+        return repo.get_pull(pull_request_id.number)
+
+    async def _get_github_username(self):
+        return self.github.get_user().login
+
+    async def _get_github_token(self):
+        return self.github
+
+    async def get_initial_pull_request(self):
+        """
+        Returns the initial pull request which was ported in this project.
+        :return:
+        """
+        original_message = await self.thread.fetch_message(self.thread.id)
+        pull_request_id = parse_pull_request_urls(original_message.content).pop()
+        return pull_request_id
+
+    async def get_branch(self, or_name: Optional[str] = None):
+        if self.initial_pull_request_opened and not self.branch:
+            pull_request_id = await self.get_initial_pull_request()
+            self.branch = pull_request_id.slug()
+        elif not self.branch:
+            self.branch = or_name
+        return self.branch
+
+    async def prepare_repo(self, token: str):
+        """
+        Switches to the main branch and synchronizes with the home repository's main branch. Also resets previous
+        merging state and updates the access token in the remote tracking url.
+
+        - clears previous merge resolution state
+        - fetches remote ``origin``, checks out ``main``, and resets ``HEAD`` to ``origin/HEAD``
+        - updates tracking url for remote ``origin`` to use the provided token
+        - tracks ``teamstarcup/starcup`` as ``teamstarcup-starcup``
+        - fetches remote ``teamstarcup-starcup``, checks out ``main``, and resets ``HEAD`` to ``teamstarcup-starcup/HEAD``
+        - pushes ``main`` to ``origin/main``
+
+        :param token:
+        :return:
+        """
+        await self.work_repo.reset_hard("HEAD")  # clear any previous bad state
+        await self.work_repo.sync_branch_with_remote("origin", await self.work_repo.default_branch())
+
+        remote_url = await self.work_repo.get_remote_url("origin")
+        if token not in remote_url:
+            remote_url = remote_url.replace("://github.com", f"://{self._get_github_username()}:{token}@github.com")
+            await self.work_repo.set_remote_url("origin", remote_url)
+
+        await self.work_repo.track_remote(HOME_REPO_ID)
+
+        default_branch = await self.work_repo.default_branch(HOME_REPO_ID)
+        await self.work_repo.sync_branch_with_remote(HOME_REPO_ID.slug(), default_branch)
+
+    async def _get_project_state(self):
+        """
+        Obtains the state for the latest pull request ported in this project.
+        :return: ProjectLatestAddition
+        """
+        branch = await self.get_branch()
+        project_latest_addition = self.session.execute(
+            sqlalchemy.select(ProjectLatestAddition).where(ProjectLatestAddition.branch == branch)
+        ).scalar()
+
+        if project_latest_addition is None:
+            project_latest_addition = ProjectLatestAddition()
+            project_latest_addition.branch = branch
+            self.session.add(project_latest_addition)
+
+        return project_latest_addition
+
+    async def _select_porting_method(self, pull_request_id: PullRequestId):
+        """
+        Determines the method for porting a pull request.
+
+        Pull requests that end in a commit with one parent will be cherry-picked.
+        Commits with multiple parents and unmerged pull requests are trickier, so we want to grab the
+        patch files for every commit in that branch to apply them one at a time.
+        :param pull_request_id:
+        :return:
+        """
+        target_pull_request = await self._get_pull_request(pull_request_id)
+
+        if not target_pull_request.is_merged():
+            return PortingMethod.PATCH
+
+        target_repo_github = await self._get_github_repo(pull_request_id.repo_id())
+        target_commit = target_repo_github.get_commit(target_pull_request.merge_commit_sha).commit
+        if len(target_commit.parents) > 1:
+            return PortingMethod.PATCH
+
+        return PortingMethod.CHERRY_PICK
+
+    async def _fetch_remote_for_pull_request(self, pull_request_id: PullRequestId):
+        target_repo_id = pull_request_id.repo_id()
+        await self.work_repo.track_remote(target_repo_id)
+        await self.work_repo.fetch(target_repo_id)
+
+    async def _finish_adding_pull_request(self, pull_request_id: PullRequestId):
+        await self.work_repo.push("origin", await self.get_branch())
+        project_state = await self._get_project_state()
+        project_state.pull_request_id = str(pull_request_id)
+        self.session.commit()
+
+        duration = int(time.time() - self._benchmark_start)
+        await self.publisher.publish(MessageEvent("comment", f"Completed in {pretty_duration(duration)}"))
+        await self.status_message.flush()
+
+    async def add_pull_request(self, pull_request_id: PullRequestId):
+        """
+        Attempts to port commit[s] from a pull request into this project.
+
+        Raises :class:`MergeConflictsException` upon encountering conflicts. Handle them with the information
+        provided from the exception and call :meth:`continue_merge`.
+        :param pull_request_id:
+        :return:
+        """
+        self._benchmark_start = time.time()
+
+        target_pull_request = await self._get_pull_request(pull_request_id)
+
+        # add target repo as remote to local work repo
+        await self._fetch_remote_for_pull_request(pull_request_id)
+
+        # create new branch in local work repo
+        await self.work_repo.checkout(await self.get_branch(pull_request_id.slug()))
+
+        # TODO: Migrate file names from existing commits authored before the new commit/s
+        # For each commit on this branch not reachable from `origin/HEAD`
+        # For each file in commit
+        # rename_info: FileRenameInfo = await self.get_eventual_file_name(file_name, from_commit, to_commit)
+        # if rename_info: rename file
+        # if any files were renamed, stage files and author a commit
+
+        method = await self._select_porting_method(pull_request_id)
+        if method == PortingMethod.PATCH:
+            await self.work_repo.apply_patch_from_url_conflict_resolving(target_pull_request.patch_url)
+        else:
+            await self.work_repo.cherry_pick(target_pull_request.merge_commit_sha)
+
+        await self._finish_adding_pull_request(pull_request_id)
+
+    async def _interactive_conflict_resolution(self, interaction: discord.Interaction, exception: MergeConflictsException):
+        while True:
+            paginator = MergeConflictsPaginator(exception.conflicts)
+            resume = await paginator.respond(interaction, target=self.thread)
+
+            if not resume:
+                await paginator.disable(include_custom=True, page="Cancelled.")
+                return False
+
+            await paginator.disable(include_custom=True, page="All conflicts resolved!")
+
+            await self.status_message.write_comment("Resolving conflicts...")
+            for conflict in exception.conflicts:
+                await conflict.resolve()
+
+            try:
+                await self.work_repo.continue_merge(exception.command)
+                return True
+            except MergeConflictsException as e2:
+                exception = e2
+
+    async def add_pull_request_interactive(self, pull_request_id: PullRequestId, interaction: discord.Interaction):
+        """
+        Attempts to port commit[s] from a pull request into this project. If there are merge conflicts, the user will
+        be prompted to resolve conflicts manually until successful.
+        :param pull_request_id:
+        :param interaction:
+        :return: true if the process was completed successfully
+        """
+        try:
+            await self.add_pull_request(pull_request_id)
+        except MergeConflictsException as exception:
+            success = await self._interactive_conflict_resolution(interaction, exception)
+            if success:
+                return False
+            await self._finish_adding_pull_request(pull_request_id)
+
+        return True
+
+    async def create_pull_request(self, title: str, pull_request_id: PullRequestId, draft: bool = False):
+        target_pull_request = await self._get_pull_request(pull_request_id)
+        body = f"Port of {target_pull_request}"
+        body += "\n\n"
+        body += "## Quote\n"
+        body += target_pull_request.body
+
+        body = qualify_implicit_issues(body, pull_request_id.repo_id())
+
+        home_repo_github = await self._get_github_repo(HOME_REPO_ID)
+        new_pull_request = home_repo_github.create_pull(
+            await self.work_repo.default_branch(HOME_REPO_ID),
+            f"{await self._get_github_username()}:{await self.get_branch()}",
+            body=body,
+            title=title,
+            draft=draft,
+        )
+
+        self.initial_pull_request_opened = True
+        return new_pull_request
 
 
 class Morticia:
@@ -28,132 +268,12 @@ class Morticia:
     def close(self) -> None:
         self.github.close()
 
-    def github_username(self):
-        return self.github.get_user().login
-
     def get_github_repo(self, repo_id: RepoId):
         return self.github.get_repo(str(repo_id))
 
     def get_pull_request(self, pr_id: PullRequestId):
         repo = self.get_github_repo(pr_id.repo_id())
         return repo.get_pull(pr_id.number)
-
-    async def get_local_repo(self, repo_id: RepoId):
-        """
-        Obtains an existing LocalRepo object, or clones it if it does not yet exist.
-        :param repo_id:
-        :return:
-        """
-        return await LocalRepo.open(repo_id)
-
-    async def sync_work_repo(self, work_repo: LocalRepo):
-        remote_url = await work_repo.get_remote_url("origin")
-        remote_url = remote_url.replace("://github.com", f"://{self.github_username()}:{self.auth.token}@github.com")
-        await work_repo.set_remote_url("origin", remote_url)
-
-        await work_repo.abort_merge()  # clear previous bad state
-        await work_repo.abort_patch()
-        await work_repo.abort_cherry_pick()
-        await work_repo.sync_branch_with_remote("origin", await work_repo.default_branch())
-
-        await work_repo.track_remote(self.home_repo_id)
-
-        await work_repo.sync_branch_with_remote(self.home_repo_id.slug(), await work_repo.default_branch(self.home_repo_id))
-
-        await work_repo.push("origin", force=True)
-
-    async def start_port(self, pr_id: PullRequestId, title: str, desc: Optional[str], interaction: discord.Interaction, target: Messageable):
-        status = StatusMessage(target)
-
-        publisher = Publisher()
-
-        await status.write_comment(f"Opening {self.work_repo_id} ...")
-        work_repo = await self.get_local_repo(self.work_repo_id)
-        work_repo.publisher = publisher
-
-        publisher.subscribe(status)
-
-        await status.write_comment(f"Synchronizing with {self.home_repo_id}")
-        await self.sync_work_repo(work_repo)
-
-        # add target repo as remote to local work repo
-        target_repo_id = pr_id.repo_id()
-        await work_repo.track_remote(target_repo_id)
-        await work_repo.fetch(target_repo_id)
-
-        # create new branch in local work repo
-        branch_name = pr_id.slug()
-        await work_repo.checkout(branch_name)
-
-        target_pull_request = self.get_pull_request(pr_id)
-        naive_resolution_applied = False
-        try:
-            # cherry-picks for squashed & merged PRs, patches for everything else
-            target_repo_github = self.get_github_repo(target_repo_id)
-
-            use_patch = False
-            if not target_pull_request.is_merged():
-                use_patch = True
-            else:
-                target_commit = target_repo_github.get_commit(target_pull_request.merge_commit_sha).commit
-                use_patch = len(target_commit.parents) > 1
-
-            if use_patch:
-                naive_resolution_applied = await work_repo.apply_patch_from_url_conflict_resolving(
-                    target_pull_request.patch_url)
-            else:
-                await work_repo.cherry_pick(target_pull_request.merge_commit_sha)
-        except MergeConflictsException as e:
-            while True:
-                paginator = MergeConflictsPaginator(e.conflicts)
-                resume = await paginator.respond(interaction, target=target)
-
-                if not resume:
-                    await paginator.disable(include_custom=True, page="Cancelled.")
-                    return
-
-                await paginator.disable(include_custom=True, page="All conflicts resolved!")
-
-                await status.write_comment("Resolving conflicts...")
-                for conflict in e.conflicts:
-                    await conflict.resolve()
-
-                try:
-                    await work_repo.continue_merge(e.command)
-                    break
-                except MergeConflictsException as e2:
-                    e = e2
-        except GitCommandException as e:
-            await status.write_error(f"stdout: {e.stdout}\n\nstderr: {e.stderr}")
-            await target.send(f"{interaction.user.mention} Failed!", target=target)
-            return
-
-        if naive_resolution_applied:
-            await status.write_comment("WARNING: Some merge conflicts were solved with naive conflict resolution!")
-
-        # await status.write_comment("I would have submitted a pull request, but this was a dry run.")
-
-        await work_repo.push("origin", branch_name)
-
-        body = f"Port of {pr_id}"
-        body += "\n\n"
-        body += "## Quote\n"
-        body += target_pull_request.body
-
-        body = qualify_implicit_issues(body, target_repo_id)
-
-        home_repo_github = self.get_github_repo(self.home_repo_id)
-        new_pr = home_repo_github.create_pull(
-            "main",
-            f"{self.github_username()}:{branch_name}",
-            body=desc or body,
-            title=title,
-            draft=naive_resolution_applied
-        )
-
-        await status.flush()
-        work_repo.unsubscribe(status)
-        await target.send(f"Complete: {new_pr.html_url}")
 
     async def index_repo(self, repo_id: RepoId):
         repo = self.get_github_repo(repo_id)
@@ -374,3 +494,20 @@ class Morticia:
         statement = sqlalchemy.select(KnownFileChange).where(KnownFileChange.repo_id == str(repo_id), KnownFileChange.previous_file_path == file_path)
         known_file_change: KnownFileChange = self.session.execute(statement).scalar()
         return known_file_change and known_file_change.file_path or None
+
+    def project_state(self, branch: str) -> ProjectLatestAddition:
+        """
+        Obtains the latest pull request addition to an existing port project.
+        :param branch:
+        :return:
+        """
+        project_latest_addition = self.session.execute(
+            sqlalchemy.select(ProjectLatestAddition).where(ProjectLatestAddition.branch == branch)
+        ).scalar()
+
+        if project_latest_addition is None:
+            project_latest_addition = ProjectLatestAddition()
+            project_latest_addition.branch = branch
+            self.session.add(project_latest_addition)
+
+        return project_latest_addition

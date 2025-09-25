@@ -300,6 +300,9 @@ class LocalRepo:
             if "Resolve operation not in progress, we are not resuming." not in e.stderr:
                 raise e
 
+    async def reset_hard(self, revision: str):
+        await self.git(f"reset --hard {revision}")
+
     async def apply_patch(self, patch: str, extra_options: str = ""):
         try:
             await self.git(f"am {patch} --keep-non-patch {extra_options}")
