@@ -7,7 +7,7 @@ from typing import Optional, Union
 import requests
 from slugify import slugify
 
-from .pubsub import PublisherMixin, MessageEvent
+from .pubsub import Publisher, MessageEvent, BaseEvent
 
 GITHUB_URL = "https://github.com/"
 
@@ -202,9 +202,11 @@ class RenamedFileInfo:
 
 
 # noinspection PyRedeclaration
-class LocalRepo(PublisherMixin):
+class LocalRepo:
     path: str
     repo_id: RepoId
+
+    publisher: Optional[Publisher]
 
     def __init__(self, path: str, repo_id: RepoId):
         super().__init__()
@@ -241,6 +243,10 @@ class LocalRepo(PublisherMixin):
 
         stdout = convert_discord_ansi(stdout)
         return stdout
+
+    async def _publish(self, event: BaseEvent):
+        if self.publisher:
+            await self.publisher.publish(event)
 
     async def subprocess(self, cmd: str, working_directory: Optional[Union[str, bytes, os.PathLike]] = None):
         proc = await asyncio.create_subprocess_shell(

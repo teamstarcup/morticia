@@ -16,22 +16,12 @@ class MessageEvent(BaseEvent):
         self.message = message
 
 
-class SubscriberMixin:
-    def __init__(self):
-        self._receivers: dict[type[BaseEvent], Callable[[BaseEvent],None]] = {}
-
-    def receive(self, event: BaseEvent):
-        event_type = type(event)
-        if func := self._receivers[event_type]:
-            func(event)
-
-
-class PublisherMixin:
+class Publisher:
     def __init__(self):
         self._subscriptions: set[tuple[type, Callable[[BaseEvent],Coroutine[Any,Any,None]]]] = set()
-        self._subscribers: dict[SubscriberMixin, list[Any]] = {}
+        self._subscribers: dict[Any, list[Any]] = {}
 
-    def subscribe(self, subscriber: SubscriberMixin):
+    def subscribe(self, subscriber: Any):
         subscriptions = self._subscribers.get(subscriber, [])
         method_names = [method_name for method_name in dir(subscriber) if callable(getattr(subscriber, method_name))]
         for method_name in method_names:
@@ -44,12 +34,12 @@ class PublisherMixin:
             subscriptions.append(subscription)
         self._subscribers[subscriber] = subscriptions
 
-    def unsubscribe(self, subscriber: SubscriberMixin):
+    def unsubscribe(self, subscriber: Any):
         subscriptions = self._subscribers[subscriber]
         for subscription in subscriptions:
             self._subscriptions.remove(subscription)
 
-    async def _publish(self, event: BaseEvent):
+    async def publish(self, event: BaseEvent):
         info = [meta for meta in self._subscriptions if meta[0] == type(event)]
         for entry in info:
             _, subscription = entry

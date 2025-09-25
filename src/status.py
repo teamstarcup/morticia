@@ -5,7 +5,7 @@ from enum import Enum
 from discord import Interaction
 from discord.abc import Messageable
 
-from src.pubsub import SubscriberMixin, MessageEvent
+from src.pubsub import MessageEvent
 
 MAX_MESSAGE_LENGTH = 2000
 FORMATTING_CHARS_LENGTH = 12
@@ -24,7 +24,7 @@ class Format(Enum):
     ERROR = 3
 
 
-class StatusMessage(SubscriberMixin):
+class StatusMessage:
     def __init__(self, target: Messageable | Interaction):
         super().__init__()
         self.target = target

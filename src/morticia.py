@@ -65,9 +65,13 @@ class Morticia:
     async def start_port(self, pr_id: PullRequestId, title: str, desc: Optional[str], interaction: discord.Interaction, target: Messageable):
         status = StatusMessage(target)
 
+        publisher = Publisher()
+
         await status.write_comment(f"Opening {self.work_repo_id} ...")
         work_repo = await self.get_local_repo(self.work_repo_id)
-        work_repo.subscribe(status)
+        work_repo.publisher = publisher
+
+        publisher.subscribe(status)
 
         await status.write_comment(f"Synchronizing with {self.home_repo_id}")
         await self.sync_work_repo(work_repo)
