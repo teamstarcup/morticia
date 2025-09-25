@@ -245,7 +245,7 @@ class Project:
             await self.add_pull_request(pull_request_id)
         except MergeConflictsException as exception:
             success = await self._interactive_conflict_resolution(interaction, exception)
-            if success:
+            if not success:
                 return False
             await self._finish_adding_pull_request(pull_request_id)
 
