@@ -431,7 +431,7 @@ class LocalRepo:
         :param opts:
         :return:
         """
-        revisions = ''.join(revisions)
+        revisions = '..'.join(revisions)
         stdout, _ = await self.git(f"log {format_opt} {opts} {revisions} -- {file_path}")
         return stdout.splitlines()
 
