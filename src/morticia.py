@@ -122,7 +122,7 @@ class Project:
         Obtains the state for the latest pull request ported in this project.
         :return: ProjectLatestAddition
         """
-        branch = await self.branch
+        branch = self.branch
         project_latest_addition = ProjectLatestAddition.as_unique(self.session, branch)
         return project_latest_addition
 
@@ -154,7 +154,7 @@ class Project:
         await self.work_repo.fetch(target_repo_id)
 
     async def _finish_adding_pull_request(self, pull_request_id: PullRequestId):
-        await self.work_repo.push("origin", await self.branch)
+        await self.work_repo.push("origin", self.branch)
         self._state.branch = self._state.branch or self.branch
         self._state.pull_request_id = str(pull_request_id)
         self.session.commit()
@@ -195,7 +195,7 @@ class Project:
         await self._fetch_remote_for_pull_request(pull_request_id)
 
         # create new branch in local work repo
-        await self.work_repo.checkout(await self.branch)
+        await self.work_repo.checkout(self.branch)
 
         # TODO: Migrate file names from existing commits authored before the new commit/s
         # For each commit on this branch not reachable from `origin/HEAD`
@@ -263,7 +263,7 @@ class Project:
         home_repo_github = await self._get_github_repo(HOME_REPO_ID)
         new_pull_request = home_repo_github.create_pull(
             await self.work_repo.default_branch(HOME_REPO_ID),
-            f"{await self._get_github_username()}:{await self.branch}",
+            f"{await self._get_github_username()}:{self.branch}",
             body=body,
             title=title,
             draft=draft,
