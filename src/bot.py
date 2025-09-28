@@ -309,5 +309,20 @@ def create_bot(*args, **kwargs):
 
         await ctx.respond(embeds=embeds)
 
+    @bot.slash_command(
+        description="Perform a preference poll in this channel.",
+        guild_ids=GUILD_IDS,
+    )
+    async def poll(ctx: discord.ApplicationContext, question: Optional[str] = "What is your impression?", hours: Optional[int] = 24):
+        poll = discord.Poll(question=question, duration=hours, allow_multiselect=True)
+        poll.add_answer("Hate it", emoji="❌")
+        poll.add_answer("Dislike it", emoji="😕")
+        poll.add_answer("Neutral", emoji="🆗")
+        poll.add_answer("Like it", emoji="🙂")
+        poll.add_answer("Love it", emoji="❤️")
+        poll.add_answer("I'd like to see significant or structural changes to it", emoji="🤔")
+
+        await ctx.respond(poll=poll)
+
 
     return bot
