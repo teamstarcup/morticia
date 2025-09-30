@@ -46,7 +46,7 @@ class MorticiaBot(discord.Bot):
         message = "Unhandled exception:"
         if interaction.response.is_done():
             message = f"{interaction.user.mention} {message}"
-        await interaction.respond(message, file=temporary_file(trace, filename="trace.txt"))
+        await interaction.respond(message, files=[temporary_file(trace, filename="trace.txt")])
 
         jump_url = f"https://discord.com/channels/{interaction.guild_id}/{interaction.channel.id}/{interaction.id}"
         log.error(f"Printed exception to Discord: {jump_url}")
