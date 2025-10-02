@@ -105,7 +105,7 @@ class PullRequestId:
         return pr_id
 
 
-class CommandException(BaseException):
+class CommandException(Exception):
     stdout: str
     stderr: str
     exit_code: int
