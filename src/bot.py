@@ -43,10 +43,18 @@ class MorticiaBot(discord.Bot):
         trace = trace.replace(self.morticia.auth.token, "<REDACTED>")
         traceback.print_exception(exception)
 
-        message = "Unhandled exception:"
-        if interaction.response.is_done():
-            message = f"{interaction.user.mention} {message}"
-        await interaction.respond(message, files=[temporary_file(trace, filename="trace.txt")])
+        message = f"{interaction.user.mention} Unhandled exception:"
+        files = [temporary_file(trace, filename="trace.txt")]
+        try:
+            await interaction.respond(message, files=files)
+        except discord.NotFound:
+            try:
+                await interaction.followup.send(message, files=files)
+            except discord.NotFound:
+                await interaction.channel.send(message, files=files)
+        except Exception:
+            log.error("Failed to dump stack trace to discord.")
+            return
 
         jump_url = f"https://discord.com/channels/{interaction.guild_id}/{interaction.channel.id}/{interaction.id}"
         log.error(f"Printed exception to Discord: {jump_url}")
